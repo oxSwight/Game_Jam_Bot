@@ -39,6 +39,8 @@ class ApplicationService(BaseService):
             skill_category_title=payload.skill_category_title,
             subcategories=payload.subcategories,
             experience_level=payload.experience_level,
+            engine=payload.engine,
+            engine_other=payload.engine_other,
             tools=payload.tools,
             tools_other=payload.tools_other,
             motivations=payload.motivations,

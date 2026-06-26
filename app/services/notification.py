@@ -5,7 +5,7 @@ from aiogram import Bot
 from app.core.config import get_settings
 from app.keyboards.admin import review_keyboard
 from app.schemas.registration import ApplicationRead
-from app.utils.html import safe
+from app.utils.html import join_with_other, safe
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 def render_application_card(application: ApplicationRead) -> str:
     """Formatted, HTML-safe card for an application — shared by the new-application
     notification and the admin queue so both stay visually consistent."""
-    tools = ", ".join(safe(t) for t in application.tools)
     return (
         "🆕 <b>Новая заявка на регистрацию</b>\n\n"
         f"ID: <code>{application.id}</code>\n"
@@ -23,7 +22,8 @@ def render_application_card(application: ApplicationRead) -> str:
         f"Категория: {safe(application.skill_category_title)}\n"
         f"Роли: {', '.join(safe(s) for s in application.subcategories)}\n"
         f"Опыт: {safe(application.experience_level)}\n"
-        f"Инструменты: {tools}\n"
+        f"Движок: {join_with_other(application.engine, application.engine_other)}\n"
+        f"Инструменты: {join_with_other(application.tools, application.tools_other)}\n"
         f"Мотивация: {', '.join(safe(m) for m in application.motivations)}"
     )
 

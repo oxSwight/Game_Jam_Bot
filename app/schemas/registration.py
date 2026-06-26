@@ -103,6 +103,8 @@ class RegistrationCreate(BaseModel):
     skill_category_title: str
     subcategories: list[str] = Field(min_length=1)
     experience_level: str
+    engine: list[str] = Field(min_length=1)
+    engine_other: str | None = None
     tools: list[str] = Field(min_length=1)
     tools_other: str | None = None
     motivations: list[str] = Field(min_length=1)
@@ -131,6 +133,8 @@ class RegistrationCreate(BaseModel):
             # (status, summary, admin notification) renders without lookups.
             subcategories=role_titles(role_ids),
             experience_level=data["experience_level"],
+            engine=data.get("engine", []),
+            engine_other=data.get("engine_other"),
             tools=data.get("tools", []),
             tools_other=data.get("tools_other"),
             motivations=data.get("motivations", []),
@@ -149,7 +153,10 @@ class ApplicationRead(BaseModel):
     skill_category_title: str
     subcategories: list[str]
     experience_level: str
+    engine: list[str] = []
+    engine_other: str | None = None
     tools: list[str]
+    tools_other: str | None = None
     motivations: list[str]
     telegram_id: int | None = None
     telegram_username: str | None = None

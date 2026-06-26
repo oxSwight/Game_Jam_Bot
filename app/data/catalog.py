@@ -161,16 +161,25 @@ EXPERIENCE_LEVELS: dict[str, str] = {
     "commercial": "Senior · 36+ мес.",
 }
 
-TOOLS: tuple[str, ...] = (
+ENGINES: tuple[str, ...] = (
     "Unreal Engine",
     "Unity",
     "Godot",
+    "GameMaker",
+    "CryEngine",
+    "Other",
+)
+
+TOOLS: tuple[str, ...] = (
     "Blender",
+    "Maya",
+    "3ds Max",
     "ZBrush",
     "Substance Painter / Designer",
     "Photoshop",
-    "JetBrains IDE",
-    "VS Code / Visual Studio",
+    "Houdini",
+    "Krita",
+    "Aseprite",
     "Other",
 )
 

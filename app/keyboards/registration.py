@@ -4,6 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from app.data.catalog import (
     CATEGORIES,
     CATEGORY_BY_ID,
+    ENGINES,
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
     TOOLS,
@@ -87,6 +88,19 @@ def experience_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def engine_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for engine in ENGINES:
+        prefix = "✓ " if engine in selected else ""
+        builder.button(text=f"{prefix}{engine}", callback_data=f"engine:{engine}")
+    builder.adjust(1)
+    builder.row(
+        InlineKeyboardButton(text="✅ Готово", callback_data="engine:done"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_exp"),
+    )
+    return builder.as_markup()
+
+
 def tools_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for tool in TOOLS:
@@ -95,7 +109,7 @@ def tools_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMark
     builder.adjust(1)
     builder.row(
         InlineKeyboardButton(text="✅ Готово", callback_data="tool:done"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_exp"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_engine"),
     )
     return builder.as_markup()
 

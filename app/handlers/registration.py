@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from pydantic import ValidationError
 
-from app.utils.html import safe
+from app.utils.html import join_with_other, safe
 
 from app.schemas.registration import EmailStep, NicknameStep, RegistrationCreate
 from app.services import ServiceContainer
@@ -25,6 +25,7 @@ from app.keyboards.registration import (
     categories_keyboard,
     confirm_keyboard,
     consent_keyboard,
+    engine_keyboard,
     experience_keyboard,
     motivation_keyboard,
     roles_keyboard,
@@ -53,12 +54,8 @@ def _consent_text() -> str:
 
 def _build_summary(data: dict) -> str:
     roles = ", ".join(safe(t) for t in role_titles(data.get("roles", []))) or "—"
-    tools = list(data.get("tools", []))
-    if data.get("tools_other"):
-        # tools_other is free-text — escape it; catalog tool names are safe but escape defensively
-        tools = [safe(data["tools_other"]) if t == "Other" else safe(t) for t in tools]
-    else:
-        tools = [safe(t) for t in tools]
+    engine = join_with_other(data.get("engine", []), data.get("engine_other"))
+    tools = join_with_other(data.get("tools", []), data.get("tools_other"))
     motivations = ", ".join(safe(m) for m in data.get("motivations", []))
 
     lines = [
@@ -67,7 +64,8 @@ def _build_summary(data: dict) -> str:
         f"<b>Категория:</b> {safe(data.get('category_title', '—'))}",
         f"<b>Роли:</b> {roles}",
         f"<b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '—'))}",
-        f"<b>Инструменты:</b> {', '.join(tools)}",
+        f"<b>Движок:</b> {engine}",
+        f"<b>Инструменты:</b> {tools}",
         f"<b>Мотивация:</b> {motivations}",
     ]
     return "\n".join(lines)
@@ -142,7 +140,8 @@ async def cmd_status(message: Message, services: ServiceContainer) -> None:
         f"Категория: {safe(MAIN_CATEGORIES.get(profile.main_category, profile.skill_category_title))}\n"
         f"Роли: {', '.join(safe(s) for s in profile.subcategories) or '—'}\n"
         f"Опыт: {safe(EXPERIENCE_LEVELS.get(profile.experience_level, profile.experience_level))}\n"
-        f"Инструменты: {', '.join(safe(t) for t in profile.tools)}\n"
+        f"Движок: {join_with_other(profile.engine, profile.engine_other)}\n"
+        f"Инструменты: {join_with_other(profile.tools, profile.tools_other)}\n"
         f"Мотивация: {', '.join(safe(m) for m in profile.motivations)}\n"
         f"Статус: {safe(STATUS_LABELS.get(profile.status, profile.status))}",
     )
@@ -365,14 +364,64 @@ async def toggle_role(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(RegistrationStates.experience, F.data.startswith("exp:"))
 async def process_experience(callback: CallbackQuery, state: FSMContext) -> None:
     level = callback.data.split(":", 1)[1]
-    await state.update_data(experience_level=level, tools=[], tools_other=None)
-    await state.set_state(RegistrationStates.tools)
+    await state.update_data(experience_level=level, engine=[], engine_other=None)
+    await state.set_state(RegistrationStates.engine)
     await callback.message.edit_text(
-        "<b>Шаг D — Инструменты</b>\n\n"
+        "<b>Шаг D — Движок</b>\n\n"
+        "Выберите движок, в котором работаете (можно несколько):",
+        reply_markup=engine_keyboard(set(), has_other=False),
+    )
+    await callback.answer()
+
+
+async def _go_to_tools(message: Message, state: FSMContext) -> None:
+    await state.update_data(tools=[], tools_other=None)
+    await state.set_state(RegistrationStates.tools)
+    await message.answer(
+        "<b>Шаг E — Инструменты</b>\n\n"
         "Выберите инструменты, с которыми работаете (можно несколько):",
         reply_markup=tools_keyboard(set(), has_other=False),
     )
+
+
+@router.callback_query(RegistrationStates.engine, F.data.startswith("engine:"))
+async def toggle_engine(callback: CallbackQuery, state: FSMContext) -> None:
+    action = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    selected: list[str] = list(data.get("engine", []))
+
+    if action == "done":
+        if not selected:
+            await callback.answer("Выберите хотя бы один движок", show_alert=True)
+            return
+        if "Other" in selected and not data.get("engine_other"):
+            await state.set_state(RegistrationStates.engine_other)
+            await callback.message.edit_text("Укажите другой движок (текстом):")
+            await callback.answer()
+            return
+        await _go_to_tools(callback.message, state)
+        await callback.answer()
+        return
+
+    if action in selected:
+        selected.remove(action)
+    else:
+        selected.append(action)
+    await state.update_data(engine=selected)
+    await callback.message.edit_reply_markup(
+        reply_markup=engine_keyboard(set(selected), has_other="Other" in selected),
+    )
     await callback.answer()
+
+
+@router.message(RegistrationStates.engine_other)
+async def process_engine_other(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+    if len(text) < 2:
+        await message.answer("Укажите движок:")
+        return
+    await state.update_data(engine_other=text)
+    await _go_to_tools(message, state)
 
 
 @router.callback_query(RegistrationStates.tools, F.data.startswith("tool:"))
@@ -547,12 +596,25 @@ async def nav_back_exp(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "nav:back_engine")
+async def nav_back_engine(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.set_state(RegistrationStates.engine)
+    selected = set(data.get("engine", []))
+    await callback.message.edit_text(
+        "<b>Шаг D — Движок</b>\n\nВыберите движок:",
+        reply_markup=engine_keyboard(selected, has_other="Other" in selected),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "nav:back_tools")
 async def nav_back_tools(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(RegistrationStates.tools)
+    selected = set(data.get("tools", []))
     await callback.message.edit_text(
-        "<b>Шаг D — Инструменты</b>\n\nВыберите инструменты:",
-        reply_markup=tools_keyboard(set(data.get("tools", [])), has_other=False),
+        "<b>Шаг E — Инструменты</b>\n\nВыберите инструменты:",
+        reply_markup=tools_keyboard(selected, has_other="Other" in selected),
     )
     await callback.answer()

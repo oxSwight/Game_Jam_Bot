@@ -42,6 +42,8 @@ class Application(Base, TimestampMixin):
     skill_category_title: Mapped[str] = mapped_column(String(128), nullable=False)
     subcategories: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     experience_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    engine: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    engine_other: Mapped[str | None] = mapped_column(Text, nullable=True)
     tools: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     tools_other: Mapped[str | None] = mapped_column(Text, nullable=True)
     motivations: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
