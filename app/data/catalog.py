@@ -35,17 +35,14 @@ def _r(items: tuple[tuple[str, str], ...]) -> tuple[Role, ...]:
 CATEGORIES: tuple[Category, ...] = (
     Category(
         id="programming",
-        title="💻 Programming / Engineering",
+        title="Programming / Engineering",
         description="Геймплей, движок, бэкенд, инструменты, интеграция.",
         roles=_r(
             (
-                ("java_backend", "Java (Backend)"),
-                ("csharp_unity", "C# (Unity)"),
-                ("cpp_unreal", "C++ (Unreal)"),
-                ("python", "Python"),
-                ("frontend", "Frontend (JS / TS)"),
+                ("programmer", "Programmer"),
+                ("frontend", "Frontend"),
                 ("gameplay", "Gameplay Programmer"),
-                ("backend_other", "Backend (Node / Go / Other)"),
+                ("backend_other", "Backend"),
                 ("tools_engine", "Tools / Engine Programmer"),
                 ("graphics", "Graphics / Shaders"),
                 ("network", "Networking / Multiplayer"),
@@ -56,7 +53,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="game_design",
-        title="🎲 Game Design",
+        title="Game Design",
         description="Механики, уровни, баланс, нарратив, player flow.",
         roles=_r(
             (
@@ -72,7 +69,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="art_2d",
-        title="🎨 2D Art",
+        title="2D Art",
         description="Концепты, иллюстрации, UI, пиксель-арт, 2D-анимация.",
         roles=_r(
             (
@@ -89,7 +86,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="art_3d",
-        title="🧊 3D Art",
+        title="3D Art",
         description="Моделинг, персонажи, окружение, скульпт, риг, VFX, свет.",
         roles=_r(
             (
@@ -97,7 +94,7 @@ CATEGORIES: tuple[Category, ...] = (
                 ("character_3d", "Character Artist"),
                 ("environment_3d", "Environment Artist"),
                 ("prop_3d", "Prop Artist"),
-                ("sculptor", "Sculptor (ZBrush)"),
+                ("sculptor", "Sculptor"),
                 ("texturing_3d", "Texturing / Materials"),
                 ("rigging", "Rigging"),
                 ("animator_3d", "3D Animator"),
@@ -108,7 +105,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="audio",
-        title="🎵 Audio",
+        title="Audio",
         description="Музыка, звуковой дизайн, аудио-интеграция, озвучка.",
         roles=_r(
             (
@@ -122,7 +119,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="management",
-        title="📋 Management / PM",
+        title="Management / PM",
         description="Координация команды, планирование, продюсирование.",
         roles=_r(
             (
@@ -158,10 +155,10 @@ def role_titles(role_ids: list[str]) -> list[str]:
 
 
 EXPERIENCE_LEVELS: dict[str, str] = {
-    "beginner": "Beginner (0–1 года)",
-    "intermediate": "Intermediate (1–3 года)",
-    "game_jam": "Game jam experience (3–9)",
-    "commercial": "Commercial experience (9+)",
+    "beginner": "Beginner",
+    "intermediate": "Intermediate",
+    "game_jam": "Game jam experience",
+    "commercial": "Commercial experience",
 }
 
 TOOLS: tuple[str, ...] = (

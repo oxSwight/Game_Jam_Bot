@@ -62,13 +62,13 @@ def _build_summary(data: dict) -> str:
     motivations = ", ".join(safe(m) for m in data.get("motivations", []))
 
     lines = [
-        f"👤 <b>Ник:</b> {safe(data.get('nickname'))}",
-        f"📧 <b>Email:</b> {safe(data.get('email'))}",
-        f"📂 <b>Категория:</b> {safe(data.get('category_title', '—'))}",
-        f"🎯 <b>Роли:</b> {roles}",
-        f"📊 <b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '—'))}",
-        f"🛠 <b>Инструменты:</b> {', '.join(tools)}",
-        f"💡 <b>Мотивация:</b> {motivations}",
+        f"<b>Ник:</b> {safe(data.get('nickname'))}",
+        f"<b>Email:</b> {safe(data.get('email'))}",
+        f"<b>Категория:</b> {safe(data.get('category_title', '—'))}",
+        f"<b>Роли:</b> {roles}",
+        f"<b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '—'))}",
+        f"<b>Инструменты:</b> {', '.join(tools)}",
+        f"<b>Мотивация:</b> {motivations}",
     ]
     return "\n".join(lines)
 
@@ -135,7 +135,7 @@ async def cmd_status(message: Message, services: ServiceContainer) -> None:
         return
 
     await message.answer(
-        f"📋 <b>Ваш профиль</b>\n\n"
+        f"<b>Ваш профиль</b>\n\n"
         f"ID: <code>{profile.id}</code>\n"
         f"Ник: {safe(profile.nickname)}\n"
         f"Email: {safe(profile.email)}\n"
