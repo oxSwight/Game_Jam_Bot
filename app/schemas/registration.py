@@ -1,6 +1,12 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.data.catalog import EXPERIENCE_LEVELS, MAIN_CATEGORIES, MOTIVATIONS, TOOLS
+from app.data.catalog import (
+    CATEGORY_BY_ID,
+    EXPERIENCE_LEVELS,
+    MOTIVATIONS,
+    TOOLS,
+    role_titles,
+)
 
 
 class TelegramIdentity(BaseModel):
@@ -32,7 +38,7 @@ class CategoryStep(BaseModel):
     @field_validator("main_category")
     @classmethod
     def validate_main_category(cls, value: str) -> str:
-        if value not in MAIN_CATEGORIES and value not in {"undecided", "other"}:
+        if value not in CATEGORY_BY_ID:
             raise ValueError("invalid main category")
         return value
 
@@ -102,17 +108,28 @@ class RegistrationCreate(BaseModel):
     motivations: list[str] = Field(min_length=1)
     consent_accepted: bool = True
 
+    @field_validator("main_category")
+    @classmethod
+    def validate_main_category(cls, value: str) -> str:
+        if value not in CATEGORY_BY_ID:
+            raise ValueError("invalid main category")
+        return value
+
     @classmethod
     def from_fsm_data(cls, data: dict, telegram_id: int, telegram_username: str | None) -> "RegistrationCreate":
+        category_id = data["category_id"]
+        role_ids = list(data.get("roles", []))
         return cls(
             identity=TelegramIdentity(telegram_id=telegram_id, telegram_username=telegram_username),
             nickname=data["nickname"],
             email=data["email"],
-            main_category=data.get("main_category", "other"),
-            blueprint_subcategory=data.get("blueprint_subcategory"),
-            skill_category_id=data["skill_category_id"],
-            skill_category_title=data["skill_category_title"],
-            subcategories=data.get("subcategories", []),
+            main_category=category_id,
+            blueprint_subcategory=None,
+            skill_category_id=category_id,
+            skill_category_title=data["category_title"],
+            # Persist human-readable role titles so every downstream view
+            # (status, summary, admin notification) renders without lookups.
+            subcategories=role_titles(role_ids),
             experience_level=data["experience_level"],
             tools=data.get("tools", []),
             tools_other=data.get("tools_other"),

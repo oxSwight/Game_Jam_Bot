@@ -1,7 +1,11 @@
+import logging
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -12,7 +16,11 @@ class Settings(BaseSettings):
     )
 
     bot_token: str = Field(..., alias="BOT_TOKEN")
-    admin_ids: list[int] = Field(default_factory=list, alias="ADMIN_IDS")
+    # NoDecode: stop pydantic-settings from JSON-decoding this env var before our
+    # validator runs. Without it, a single id like "717098190" is valid JSON and
+    # gets decoded to an int, which our before-validator then turns into [] —
+    # silently disabling all admin notifications. See parse_admin_ids below.
+    admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list, alias="ADMIN_IDS")
 
     database_url: str = Field(
         default="sqlite+aiosqlite:///./players.db",
@@ -27,12 +35,14 @@ class Settings(BaseSettings):
     @field_validator("admin_ids", mode="before")
     @classmethod
     def parse_admin_ids(cls, value: object) -> list[int]:
-        if isinstance(value, list):
-            return [int(v) for v in value]
-        if not value:
+        if value is None or value == "":
             return []
+        if isinstance(value, int):
+            return [value]
+        if isinstance(value, (list, tuple)):
+            return [int(v) for v in value]
         if isinstance(value, str):
-            return [int(part.strip()) for part in value.split(",") if part.strip().isdigit()]
+            return [int(part.strip()) for part in value.split(",") if part.strip().lstrip("-").isdigit()]
         return []
 
 

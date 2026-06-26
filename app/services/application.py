@@ -82,6 +82,9 @@ class ApplicationService(BaseService):
     async def count_pending(self) -> int:
         return await self.applications.count_pending()
 
+    async def list_pending(self, *, limit: int, offset: int) -> list[Application]:
+        return await self.applications.list_pending(limit=limit, offset=offset)
+
     async def find_by_prefix(self, prefix: str) -> Application | None:
         return await self.applications.find_by_id_prefix(prefix)
 

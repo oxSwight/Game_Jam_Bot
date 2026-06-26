@@ -2,12 +2,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from app.data.catalog import (
-    BLUEPRINT_SUBCATEGORIES,
+    CATEGORIES,
+    CATEGORY_BY_ID,
     EXPERIENCE_LEVELS,
-    MAIN_CATEGORIES,
     MOTIVATIONS,
-    SKILL_BY_ID,
-    SKILL_CATEGORIES,
     TOOLS,
 )
 
@@ -26,74 +24,56 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
-def main_categories_keyboard() -> InlineKeyboardMarkup:
+def categories_keyboard() -> InlineKeyboardMarkup:
+    """Tier 1 — parent categories."""
     builder = InlineKeyboardBuilder()
-    for key, label in MAIN_CATEGORIES.items():
-        builder.button(text=label, callback_data=f"main_cat:{key}")
-    builder.button(text="📋 Все направления (детально)", callback_data="main_cat:detailed")
+    for category in CATEGORIES:
+        builder.button(text=category.title, callback_data=f"cat:{category.id}")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def blueprint_subcategories_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for item in BLUEPRINT_SUBCATEGORIES:
-        builder.button(text=item, callback_data=f"bp_sub:{item}")
-    builder.button(text="⬅️ Назад", callback_data="nav:back_main_cat")
-    builder.adjust(2)
-    return builder.as_markup()
-
-
-def skill_categories_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for category in SKILL_CATEGORIES:
-        builder.button(text=category.title, callback_data=f"skill:{category.id}")
-    builder.button(text="⬅️ Назад", callback_data="nav:back_main_cat")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def subcategories_keyboard(
+def roles_keyboard(
     category_id: str,
     selected: set[str],
     *,
     page: int = 0,
-    page_size: int = 5,
+    page_size: int = 6,
 ) -> InlineKeyboardMarkup:
-    items = list(SKILL_BY_ID[category_id].subcategories)
+    """Tier 2 — paginated, multi-select roles within a category."""
+    items = list(CATEGORY_BY_ID[category_id].roles)
     start = page * page_size
     chunk = items[start : start + page_size]
     total_pages = max(1, (len(items) + page_size - 1) // page_size)
 
     builder = InlineKeyboardBuilder()
-    for item in chunk:
-        prefix = "✓ " if item in selected else ""
-        builder.button(text=f"{prefix}{item}", callback_data=f"subcat:{item}")
-
+    for role in chunk:
+        prefix = "✓ " if role.id in selected else ""
+        builder.button(text=f"{prefix}{role.title}", callback_data=f"role:{role.id}")
     builder.adjust(1)
 
     nav_row: list[InlineKeyboardButton] = []
     if start > 0:
         nav_row.append(
-            InlineKeyboardButton(text="◀️ Назад", callback_data=f"subcat_page:{page - 1}")
+            InlineKeyboardButton(text="◀️ Назад", callback_data=f"role_page:{page - 1}")
         )
     if total_pages > 1:
         nav_row.append(
             InlineKeyboardButton(
                 text=f"· {page + 1}/{total_pages} ·",
-                callback_data="subcat:noop",
+                callback_data="role:noop",
             )
         )
     if start + page_size < len(items):
         nav_row.append(
-            InlineKeyboardButton(text="Далее ▶️", callback_data=f"subcat_page:{page + 1}")
+            InlineKeyboardButton(text="Далее ▶️", callback_data=f"role_page:{page + 1}")
         )
     if nav_row:
         builder.row(*nav_row)
 
     builder.row(
-        InlineKeyboardButton(text="✅ Готово", callback_data="subcat:done"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_skill"),
+        InlineKeyboardButton(text="✅ Готово", callback_data="role:done"),
+        InlineKeyboardButton(text="⬅️ К категориям", callback_data="nav:back_category"),
     )
     return builder.as_markup()
 
@@ -102,7 +82,7 @@ def experience_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for key, label in EXPERIENCE_LEVELS.items():
         builder.button(text=label, callback_data=f"exp:{key}")
-    builder.button(text="⬅️ Назад", callback_data="nav:back_subcat")
+    builder.button(text="⬅️ Назад", callback_data="nav:back_roles")
     builder.adjust(1)
     return builder.as_markup()
 

@@ -35,3 +35,14 @@ class ApplicationRepository(BaseRepository[Application]):
             .where(Application.status == ApplicationStatus.PENDING_REVIEW),
         )
         return int(result or 0)
+
+    async def list_pending(self, *, limit: int, offset: int) -> list[Application]:
+        result = await self.session.scalars(
+            select(Application)
+            .where(Application.status == ApplicationStatus.PENDING_REVIEW)
+            .order_by(Application.created_at.asc())
+            .options(selectinload(Application.user))
+            .limit(limit)
+            .offset(offset),
+        )
+        return list(result.all())

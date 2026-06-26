@@ -14,22 +14,20 @@ from app.services import ServiceContainer
 from app.services.application import ActiveApplicationExistsError
 from app.states.registration import RegistrationStates
 from app.data.catalog import (
+    CATEGORY_BY_ID,
     CONSENT_ITEMS,
     EXPERIENCE_LEVELS,
     MAIN_CATEGORIES,
-    MAIN_TO_SKILL,
-    SKILL_BY_ID,
+    role_titles,
 )
 from app.keyboards.registration import (
-    blueprint_subcategories_keyboard,
     cancel_keyboard,
+    categories_keyboard,
     confirm_keyboard,
     consent_keyboard,
     experience_keyboard,
-    main_categories_keyboard,
     motivation_keyboard,
-    skill_categories_keyboard,
-    subcategories_keyboard,
+    roles_keyboard,
     tools_keyboard,
 )
 
@@ -54,7 +52,7 @@ def _consent_text() -> str:
 
 
 def _build_summary(data: dict) -> str:
-    subcats = ", ".join(safe(s) for s in data.get("subcategories", [])) or "—"
+    roles = ", ".join(safe(t) for t in role_titles(data.get("roles", []))) or "—"
     tools = list(data.get("tools", []))
     if data.get("tools_other"):
         # tools_other is free-text — escape it; catalog tool names are safe but escape defensively
@@ -66,13 +64,8 @@ def _build_summary(data: dict) -> str:
     lines = [
         f"👤 <b>Ник:</b> {safe(data.get('nickname'))}",
         f"📧 <b>Email:</b> {safe(data.get('email'))}",
-        f"📂 <b>Категория:</b> {safe(MAIN_CATEGORIES.get(data.get('main_category', ''), data.get('main_category', '')))}",
-    ]
-    if data.get("blueprint_subcategory"):
-        lines.append(f"🔧 <b>Blueprint подкатегория:</b> {safe(data['blueprint_subcategory'])}")
-    lines += [
-        f"🎯 <b>Направление:</b> {safe(data.get('skill_category_title', '—'))}",
-        f"📌 <b>Подкатегории:</b> {subcats}",
+        f"📂 <b>Категория:</b> {safe(data.get('category_title', '—'))}",
+        f"🎯 <b>Роли:</b> {roles}",
         f"📊 <b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '—'))}",
         f"🛠 <b>Инструменты:</b> {', '.join(tools)}",
         f"💡 <b>Мотивация:</b> {motivations}",
@@ -146,13 +139,12 @@ async def cmd_status(message: Message, services: ServiceContainer) -> None:
         f"ID: <code>{profile.id}</code>\n"
         f"Ник: {safe(profile.nickname)}\n"
         f"Email: {safe(profile.email)}\n"
-        f"Категория: {safe(MAIN_CATEGORIES.get(profile.main_category, profile.main_category))}\n"
-        f"Направление: {safe(profile.skill_category_title)}\n"
-        f"Подкатегории: {', '.join(safe(s) for s in profile.subcategories) or '—'}\n"
+        f"Категория: {safe(MAIN_CATEGORIES.get(profile.main_category, profile.skill_category_title))}\n"
+        f"Роли: {', '.join(safe(s) for s in profile.subcategories) or '—'}\n"
         f"Опыт: {safe(EXPERIENCE_LEVELS.get(profile.experience_level, profile.experience_level))}\n"
         f"Инструменты: {', '.join(safe(t) for t in profile.tools)}\n"
         f"Мотивация: {', '.join(safe(m) for m in profile.motivations)}\n"
-        f"Статус: {safe(profile.status)}",
+        f"Статус: {safe(STATUS_LABELS.get(profile.status, profile.status))}",
     )
 
 
@@ -223,133 +215,75 @@ async def process_email(
         return
 
     await state.update_data(email=str(step.email))
-    await state.set_state(RegistrationStates.main_category)
+    await state.set_state(RegistrationStates.category)
     await message.answer(
         "<b>Шаг B — Категория</b>\n\n"
         "Выберите основное направление:",
-        reply_markup=main_categories_keyboard(),
+        reply_markup=categories_keyboard(),
     )
 
 
-@router.callback_query(F.data.startswith("main_cat:"))
-async def process_main_category(callback: CallbackQuery, state: FSMContext) -> None:
+def _roles_prompt(category) -> str:
+    return (
+        f"<b>{safe(category.title)}</b>\n<i>{safe(category.description)}</i>\n\n"
+        "Выберите роль(и) (можно несколько), затем нажмите «Готово»:"
+    )
+
+
+@router.callback_query(RegistrationStates.category, F.data.startswith("cat:"))
+async def process_category(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     if not data.get("email") or not data.get("nickname"):
         await callback.answer("Сессия устарела. Начните заново: /register", show_alert=True)
         return
-    await state.set_state(RegistrationStates.main_category)
 
-    key = callback.data.split(":", 1)[1]
-    if key == "detailed":
-        await state.set_state(RegistrationStates.skill_category)
-        await callback.message.edit_text(
-            "<b>Выберите детальное направление:</b>",
-            reply_markup=skill_categories_keyboard(),
-        )
-        await callback.answer()
+    category_id = callback.data.split(":", 1)[1]
+    category = CATEGORY_BY_ID.get(category_id)
+    if category is None:
+        await callback.answer("Неизвестная категория.", show_alert=True)
         return
 
-    await state.update_data(main_category=key)
-    if key == "blueprint_programming":
-        await state.set_state(RegistrationStates.blueprint_subcategory)
-        await callback.message.edit_text(
-            "<b>Blueprint / Programming</b>\n\n"
-            "Выберите подкатегорию:",
-            reply_markup=blueprint_subcategories_keyboard(),
-        )
-    else:
-        skill_id = MAIN_TO_SKILL.get(key, "undecided")
-        skill = SKILL_BY_ID[skill_id]
-        await state.update_data(
-            skill_category_id=skill.id,
-            skill_category_title=skill.title,
-            subcategories=[],
-            subcat_page=0,
-        )
-        await state.set_state(RegistrationStates.subcategories)
-        await callback.message.edit_text(
-            f"<b>{skill.title}</b>\n<i>{skill.description}</i>\n\n"
-            "Выберите подкатегории (можно несколько), затем нажмите «Готово»:",
-            reply_markup=subcategories_keyboard(skill.id, set()),
-        )
-    await callback.answer()
-
-
-@router.callback_query(RegistrationStates.blueprint_subcategory, F.data.startswith("bp_sub:"))
-async def process_blueprint_sub(callback: CallbackQuery, state: FSMContext) -> None:
-    sub = callback.data.split(":", 1)[1]
-    await state.update_data(blueprint_subcategory=sub)
-
-    skill_map = {
-        "Level Design": "game_design",
-        "Lighting": "lighting_vfx",
-        "UI/UX": "ui_ux",
-        "QA": "undecided",
-    }
-    skill_id = skill_map.get(sub, "programming")
-    skill = SKILL_BY_ID[skill_id]
     await state.update_data(
-        skill_category_id=skill.id,
-        skill_category_title=skill.title,
-        subcategories=[],
-        subcat_page=0,
+        category_id=category.id,
+        category_title=category.title,
+        roles=[],
+        role_page=0,
     )
-    await state.set_state(RegistrationStates.subcategories)
+    await state.set_state(RegistrationStates.roles)
     await callback.message.edit_text(
-        f"<b>{skill.title}</b>\n<i>{skill.description}</i>\n\n"
-        "Выберите подкатегории (можно несколько), затем нажмите «Готово»:",
-        reply_markup=subcategories_keyboard(skill.id, set()),
+        _roles_prompt(category),
+        reply_markup=roles_keyboard(category.id, set()),
     )
     await callback.answer()
 
 
-@router.callback_query(RegistrationStates.skill_category, F.data.startswith("skill:"))
-async def process_skill_category(callback: CallbackQuery, state: FSMContext) -> None:
-    skill_id = callback.data.split(":", 1)[1]
-    skill = SKILL_BY_ID[skill_id]
-    await state.update_data(
-        main_category=skill_id if skill_id in MAIN_CATEGORIES else "other",
-        skill_category_id=skill.id,
-        skill_category_title=skill.title,
-        subcategories=[],
-        subcat_page=0,
-    )
-    await state.set_state(RegistrationStates.subcategories)
-    await callback.message.edit_text(
-        f"<b>{skill.title}</b>\n<i>{skill.description}</i>\n\n"
-        "Выберите подкатегории (можно несколько), затем нажмите «Готово»:",
-        reply_markup=subcategories_keyboard(skill.id, set()),
-    )
-    await callback.answer()
-
-
-@router.callback_query(RegistrationStates.subcategories, F.data.startswith("subcat_page:"))
-async def subcat_page(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(RegistrationStates.roles, F.data.startswith("role_page:"))
+async def role_page(callback: CallbackQuery, state: FSMContext) -> None:
     page = int(callback.data.split(":", 1)[1])
     data = await state.get_data()
-    skill_id = data["skill_category_id"]
-    selected = set(data.get("subcategories", []))
-    await state.update_data(subcat_page=page)
+    category_id = data["category_id"]
+    selected = set(data.get("roles", []))
+    await state.update_data(role_page=page)
     await callback.message.edit_reply_markup(
-        reply_markup=subcategories_keyboard(skill_id, selected, page=page),
+        reply_markup=roles_keyboard(category_id, selected, page=page),
     )
     await callback.answer()
 
 
-@router.callback_query(RegistrationStates.subcategories, F.data.startswith("subcat:"))
-async def toggle_subcategory(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(RegistrationStates.roles, F.data.startswith("role:"))
+async def toggle_role(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":", 1)[1]
     if action == "noop":
         await callback.answer()
         return
 
     data = await state.get_data()
-    skill_id = data["skill_category_id"]
-    selected: list[str] = list(data.get("subcategories", []))
+    category_id = data["category_id"]
+    selected: list[str] = list(data.get("roles", []))
 
     if action == "done":
         if not selected:
-            await callback.answer("Выберите хотя бы одну подкатегорию", show_alert=True)
+            await callback.answer("Выберите хотя бы одну роль", show_alert=True)
             return
         await state.set_state(RegistrationStates.experience)
         await callback.message.edit_text(
@@ -364,10 +298,10 @@ async def toggle_subcategory(callback: CallbackQuery, state: FSMContext) -> None
         selected.remove(action)
     else:
         selected.append(action)
-    await state.update_data(subcategories=selected)
-    page = data.get("subcat_page", 0)
+    await state.update_data(roles=selected)
+    page = data.get("role_page", 0)
     await callback.message.edit_reply_markup(
-        reply_markup=subcategories_keyboard(skill_id, set(selected), page=page),
+        reply_markup=roles_keyboard(category_id, set(selected), page=page),
     )
     await callback.answer()
 
@@ -487,6 +421,12 @@ async def confirm_submit(
         await callback.answer("У вас уже есть активная заявка.", show_alert=True)
         return
 
+    # Commit explicitly here so the application is durably persisted BEFORE we
+    # notify admins. The DbSessionMiddleware would otherwise only commit after
+    # this handler returns — meaning a notification failure (or a crash mid-send)
+    # could leave admins pinged about an un-persisted row, or vice versa.
+    await services.session.commit()
+
     await state.clear()
     await callback.message.edit_text(
         "✅ <b>Заявка отправлена!</b>\n\n"
@@ -497,46 +437,46 @@ async def confirm_submit(
     )
     await callback.message.answer("Регистрация завершена.", reply_markup=ReplyKeyboardRemove())
 
-    if services.notifications:
-        await services.notifications.notify_admins_new_application(application)
-
     logger.info(
         "application submitted",
         extra={"extra_fields": {"application_id": application.id, "telegram_id": callback.from_user.id}},
     )
+
+    if services.notifications:
+        logger.debug("dispatching admin notification for application %s", application.id)
+        await services.notifications.notify_admins_new_application(application)
+        logger.debug("admin notification dispatch returned for application %s", application.id)
+    else:
+        logger.warning(
+            "notification service unavailable — admins NOT notified about application %s",
+            application.id,
+        )
+
     await callback.answer("Заявка принята!")
 
 
-@router.callback_query(F.data == "nav:back_main_cat")
-async def nav_back_main(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(RegistrationStates.main_category)
+@router.callback_query(F.data == "nav:back_category")
+async def nav_back_category(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(RegistrationStates.category)
     await callback.message.edit_text(
         "<b>Шаг B — Категория</b>\n\nВыберите основное направление:",
-        reply_markup=main_categories_keyboard(),
+        reply_markup=categories_keyboard(),
     )
     await callback.answer()
 
 
-@router.callback_query(F.data == "nav:back_skill")
-async def nav_back_skill(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(RegistrationStates.skill_category)
-    await callback.message.edit_text(
-        "<b>Выберите детальное направление:</b>",
-        reply_markup=skill_categories_keyboard(),
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "nav:back_subcat")
-async def nav_back_subcat(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data == "nav:back_roles")
+async def nav_back_roles(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
-    skill_id = data["skill_category_id"]
-    skill = SKILL_BY_ID[skill_id]
-    await state.set_state(RegistrationStates.subcategories)
+    category = CATEGORY_BY_ID[data["category_id"]]
+    await state.set_state(RegistrationStates.roles)
     await callback.message.edit_text(
-        f"<b>{skill.title}</b>\n<i>{skill.description}</i>\n\n"
-        "Выберите подкатегории:",
-        reply_markup=subcategories_keyboard(skill_id, set(data.get("subcategories", []))),
+        _roles_prompt(category),
+        reply_markup=roles_keyboard(
+            category.id,
+            set(data.get("roles", [])),
+            page=data.get("role_page", 0),
+        ),
     )
     await callback.answer()
 

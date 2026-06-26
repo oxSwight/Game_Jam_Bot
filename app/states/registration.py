@@ -5,10 +5,8 @@ class RegistrationStates(StatesGroup):
     consent = State()
     nickname = State()
     email = State()
-    main_category = State()
-    blueprint_subcategory = State()
-    skill_category = State()
-    subcategories = State()
+    category = State()      # tier 1: parent category (Programming, 3D Art, ...)
+    roles = State()         # tier 2: concrete role(s) within the category
     experience = State()
     tools = State()
     tools_other = State()

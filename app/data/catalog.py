@@ -1,15 +1,160 @@
+"""Hierarchical role catalog for registration.
+
+Two-tier structure: a small set of parent ``Category`` items, each holding a
+flat list of concrete ``Role`` items. The registration FSM walks this as
+Category -> Role(s): a user first picks "Programming / Engineering", then the
+specific role(s) such as "Java (Backend)".
+
+Role ids are globally unique so a single ``ROLE_BY_ID`` lookup is enough for
+validation and display anywhere in the app.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class SkillCategory:
+class Role:
+    id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class Category:
     id: str
     title: str
     description: str
-    subcategories: tuple[str, ...]
-    battle_roles: tuple[str, ...] = ()
+    roles: tuple[Role, ...]
+
+
+def _r(items: tuple[tuple[str, str], ...]) -> tuple[Role, ...]:
+    return tuple(Role(id=i, title=t) for i, t in items)
+
+
+CATEGORIES: tuple[Category, ...] = (
+    Category(
+        id="programming",
+        title="💻 Programming / Engineering",
+        description="Геймплей, движок, бэкенд, инструменты, интеграция.",
+        roles=_r(
+            (
+                ("java_backend", "Java (Backend)"),
+                ("csharp_unity", "C# (Unity)"),
+                ("cpp_unreal", "C++ (Unreal)"),
+                ("python", "Python"),
+                ("frontend", "Frontend (JS / TS)"),
+                ("gameplay", "Gameplay Programmer"),
+                ("backend_other", "Backend (Node / Go / Other)"),
+                ("tools_engine", "Tools / Engine Programmer"),
+                ("graphics", "Graphics / Shaders"),
+                ("network", "Networking / Multiplayer"),
+                ("qa_automation", "QA / Automation"),
+                ("devops", "DevOps / Build"),
+            )
+        ),
+    ),
+    Category(
+        id="game_design",
+        title="🎲 Game Design",
+        description="Механики, уровни, баланс, нарратив, player flow.",
+        roles=_r(
+            (
+                ("game_designer", "Game Designer"),
+                ("level_designer", "Level Designer"),
+                ("systems_designer", "Systems Designer"),
+                ("combat_designer", "Combat Designer"),
+                ("economy_designer", "Economy / Balance"),
+                ("narrative", "Narrative / Writer"),
+                ("ux_designer", "UX Designer"),
+            )
+        ),
+    ),
+    Category(
+        id="art_2d",
+        title="🎨 2D Art",
+        description="Концепты, иллюстрации, UI, пиксель-арт, 2D-анимация.",
+        roles=_r(
+            (
+                ("concept", "Concept Artist"),
+                ("illustrator", "Illustrator"),
+                ("character_2d", "2D Character Artist"),
+                ("environment_2d", "2D Environment Artist"),
+                ("ui_artist", "UI Artist"),
+                ("pixel", "Pixel Artist"),
+                ("animator_2d", "2D Animator"),
+                ("texture_2d", "Texture Artist"),
+            )
+        ),
+    ),
+    Category(
+        id="art_3d",
+        title="🧊 3D Art",
+        description="Моделинг, персонажи, окружение, скульпт, риг, VFX, свет.",
+        roles=_r(
+            (
+                ("modeler_3d", "3D Modeler"),
+                ("character_3d", "Character Artist"),
+                ("environment_3d", "Environment Artist"),
+                ("prop_3d", "Prop Artist"),
+                ("sculptor", "Sculptor (ZBrush)"),
+                ("texturing_3d", "Texturing / Materials"),
+                ("rigging", "Rigging"),
+                ("animator_3d", "3D Animator"),
+                ("vfx", "VFX Artist"),
+                ("lighting", "Lighting Artist"),
+            )
+        ),
+    ),
+    Category(
+        id="audio",
+        title="🎵 Audio",
+        description="Музыка, звуковой дизайн, аудио-интеграция, озвучка.",
+        roles=_r(
+            (
+                ("composer", "Composer"),
+                ("sound_designer", "Sound Designer"),
+                ("audio_impl", "Audio Implementation"),
+                ("voice", "Voice / Dialogue"),
+                ("adaptive_audio", "Adaptive / Interactive Music"),
+            )
+        ),
+    ),
+    Category(
+        id="management",
+        title="📋 Management / PM",
+        description="Координация команды, планирование, продюсирование.",
+        roles=_r(
+            (
+                ("project_manager", "Project Manager"),
+                ("producer", "Producer"),
+                ("team_lead", "Team Lead"),
+                ("scrum_master", "Scrum Master"),
+                ("community_manager", "Community Manager"),
+                ("qa_lead", "QA Lead"),
+            )
+        ),
+    ),
+)
+
+CATEGORY_BY_ID: dict[str, Category] = {c.id: c for c in CATEGORIES}
+
+ROLE_BY_ID: dict[str, Role] = {
+    role.id: role for category in CATEGORIES for role in category.roles
+}
+
+# Maps a role id back to the id of the category that owns it.
+CATEGORY_OF_ROLE: dict[str, str] = {
+    role.id: category.id for category in CATEGORIES for role in category.roles
+}
+
+# Backward-compatible id -> human title map used by status/summary rendering.
+MAIN_CATEGORIES: dict[str, str] = {c.id: c.title for c in CATEGORIES}
+
+
+def role_titles(role_ids: list[str]) -> list[str]:
+    """Resolve a list of role ids to their human titles (skips unknown ids)."""
+    return [ROLE_BY_ID[r].title for r in role_ids if r in ROLE_BY_ID]
 
 
 EXPERIENCE_LEVELS: dict[str, str] = {
@@ -19,28 +164,16 @@ EXPERIENCE_LEVELS: dict[str, str] = {
     "commercial": "Commercial experience (9+)",
 }
 
-MAIN_CATEGORIES: dict[str, str] = {
-    "environment_art": "Environment Art",
-    "props_3d": "Props / 3D Modeling",
-    "blueprint_programming": "Blueprint / Programming",
-    "pm_coordination": "PM / Coordination",
-    "other": "Other",
-}
-
-BLUEPRINT_SUBCATEGORIES: tuple[str, ...] = (
-    "Level Design",
-    "Lighting",
-    "UI/UX",
-    "QA",
-)
-
 TOOLS: tuple[str, ...] = (
     "Unreal Engine",
     "Unity",
+    "Godot",
     "Blender",
     "ZBrush",
     "Substance Painter / Designer",
     "Photoshop",
+    "JetBrains IDE",
+    "VS Code / Visual Studio",
     "Other",
 )
 
@@ -59,267 +192,3 @@ CONSENT_ITEMS: tuple[str, ...] = (
     "Готов предоставить evidence работы",
     "Понимаю, что следующий шаг — ручная проверка",
 )
-
-SKILL_CATEGORIES: tuple[SkillCategory, ...] = (
-    SkillCategory(
-        id="environment_art",
-        title="1. Environment Art",
-        description="Окружение, сцены, пропсы, материалы, локации.",
-        subcategories=(
-            "Environment Artist",
-            "Level Artist",
-            "Props Artist",
-            "Hard Surface Props",
-            "Modular Assets",
-            "Set Dressing",
-            "Materials / Texturing",
-            "Foliage / Nature",
-            "Terrain / Landscape",
-            "Trim Sheets",
-        ),
-        battle_roles=(
-            "Room Blockout",
-            "Prop Modeling",
-            "Scene Assembly",
-            "Material Setup",
-            "Environment Dressing",
-            "Collision Setup",
-            "Asset Optimization",
-        ),
-    ),
-    SkillCategory(
-        id="character_art",
-        title="2. Character Art",
-        description="Персонажи, существа, одежда, анатомия, sculpt.",
-        subcategories=(
-            "Character Artist",
-            "Creature Artist",
-            "Sculpting",
-            "Anatomy Sculpting",
-            "Clothes / Outfit",
-            "Hair / Groom",
-            "Retopology",
-            "UV",
-            "Baking",
-            "Character Texturing",
-        ),
-        battle_roles=(
-            "Character Sculpt",
-            "Creature Blockout",
-            "Outfit Modeling",
-            "Retopology",
-            "Texture Paint",
-            "Character Presentation",
-        ),
-    ),
-    SkillCategory(
-        id="animation_rigging",
-        title="3. Animation / Rigging",
-        description="Движение, скелеты, rig, skinning, object animation.",
-        subcategories=(
-            "3D Animation",
-            "Character Animation",
-            "Object Animation",
-            "Rigging",
-            "Skinning",
-            "Technical Animation",
-            "Cinematic Animation",
-        ),
-        battle_roles=(
-            "Door Animation",
-            "Lamp Animation",
-            "Character Idle",
-            "Simple Interaction Animation",
-            "Rig Setup",
-            "Animation Import",
-        ),
-    ),
-    SkillCategory(
-        id="game_design",
-        title="4. Game Design / Level Design",
-        description="Правила, механики, структура уровня, player flow, puzzle logic.",
-        subcategories=(
-            "Game Designer",
-            "Level Designer",
-            "Puzzle Designer",
-            "Mission Designer",
-            "Encounter Designer",
-            "Mechanics Designer",
-            "Balance",
-            "Documentation",
-        ),
-        battle_roles=(
-            "Define Core Interaction",
-            "Room Flow",
-            "Puzzle Logic",
-            "Player Path",
-            "Rules Description",
-            "Task Brief",
-            "Design Constraints",
-        ),
-    ),
-    SkillCategory(
-        id="programming",
-        title="5. Programming / Blueprints",
-        description="Gameplay logic, interactions, Blueprints, C++, Unity C#, integration.",
-        subcategories=(
-            "Unreal Blueprints",
-            "Unreal C++",
-            "Unity C#",
-            "Gameplay Programming",
-            "Interaction Systems",
-            "UI Logic",
-            "Tools",
-            "Integration",
-            "Debugging",
-            "Beginner / Learning",
-        ),
-        battle_roles=(
-            "Button Interaction",
-            "Lamp State Change",
-            "Trigger Setup",
-            "Gameplay Logic",
-            "UI Hook",
-            "Bug Fixing",
-            "Build Preparation",
-        ),
-    ),
-    SkillCategory(
-        id="technical_art",
-        title="6. Technical Art",
-        description="Связь между art и tech: materials, shaders, optimization, tools, pipeline.",
-        subcategories=(
-            "Materials / Shaders",
-            "Optimization",
-            "Tools",
-            "Procedural Setup",
-            "VFX Technical Setup",
-            "Rigging Support",
-            "Engine Integration",
-            "Performance",
-            "Blueprint Utility",
-        ),
-        battle_roles=(
-            "Master Material Setup",
-            "Shader Setup",
-            "Optimization Pass",
-            "Asset Integration",
-            "Technical Validation",
-            "Pipeline Support",
-        ),
-    ),
-    SkillCategory(
-        id="lighting_vfx",
-        title="7. Lighting / VFX / Presentation",
-        description="Свет, эффекты, атмосфера, финальная подача, camera/presentation.",
-        subcategories=(
-            "Lighting Artist",
-            "VFX Artist",
-            "Post Process",
-            "Cinematic Presentation",
-            "Camera",
-            "Atmosphere",
-            "Particles",
-            "Niagara",
-            "Render / Screenshot Setup",
-        ),
-        battle_roles=(
-            "Basic Lighting Pass",
-            "Mood Lighting",
-            "Lamp VFX",
-            "Interaction Feedback",
-            "Final Screenshot Setup",
-            "Camera Flythrough",
-            "Presentation Polish",
-        ),
-    ),
-    SkillCategory(
-        id="ui_ux",
-        title="8. UI / UX",
-        description="Интерфейсы, HUD, меню, подсказки, пользовательский опыт.",
-        subcategories=(
-            "UI Designer",
-            "UX Designer",
-            "HUD",
-            "Menu Design",
-            "Interaction Feedback",
-            "Icons",
-            "Wireframes",
-            "UI Implementation",
-        ),
-        battle_roles=(
-            "Interaction Prompt",
-            "Simple HUD",
-            "Button Hint",
-            "Win / Fail Screen",
-            "UI Layout",
-            "UX Feedback",
-        ),
-    ),
-    SkillCategory(
-        id="sound_music",
-        title="9. Sound / Music",
-        description="Звук, музыка, ambient, feedback sounds, audio implementation.",
-        subcategories=(
-            "Sound Design",
-            "Music",
-            "Ambient Sound",
-            "UI Sounds",
-            "Interaction Sounds",
-            "Voice",
-            "Audio Implementation",
-        ),
-        battle_roles=(
-            "Button Click Sound",
-            "Lamp Turn On Sound",
-            "Ambient Loop",
-            "Success Sound",
-            "Audio Integration",
-        ),
-    ),
-    SkillCategory(
-        id="pm_coordination",
-        title="10. PM / Coordination",
-        description="Координация команды, планирование, коммуникация.",
-        subcategories=(
-            "Project Manager",
-            "Team Lead",
-            "Scrum Master",
-            "Producer",
-            "Documentation",
-            "Task Coordination",
-        ),
-        battle_roles=(),
-    ),
-    SkillCategory(
-        id="undecided",
-        title="11. Пока не знаю / хочу попробовать",
-        description="Для новичков, которые ещё не понимают своё направление.",
-        subcategories=(
-            "Хочу попробовать 3D",
-            "Хочу попробовать код",
-            "Хочу попробовать дизайн",
-            "Хочу помогать команде",
-            "Не знаю, с чего начать",
-            "Нужна вводная консультация",
-        ),
-        battle_roles=(
-            "Assistant / Helper",
-            "QA Beginner",
-            "Simple Task Support",
-            "Documentation Helper",
-            "Evidence Helper",
-            "Learning Participant",
-        ),
-    ),
-)
-
-SKILL_BY_ID: dict[str, SkillCategory] = {c.id: c for c in SKILL_CATEGORIES}
-
-MAIN_TO_SKILL: dict[str, str] = {
-    "environment_art": "environment_art",
-    "props_3d": "environment_art",
-    "blueprint_programming": "programming",
-    "pm_coordination": "pm_coordination",
-    "other": "undecided",
-}
