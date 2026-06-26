@@ -180,18 +180,16 @@ async def cmd_withdraw(
 @router.message(Command("whoami"))
 @router.message(Command("id"))
 async def cmd_whoami(message: Message, is_admin: bool = False) -> None:
-    role = "👑 администратор" if is_admin else "обычный пользователь"
-    await message.answer(
-        "🪪 <b>Кто вы</b>\n\n"
-        f"Telegram ID: <code>{message.from_user.id}</code>\n"
-        f"Username: @{safe(message.from_user.username) or '—'}\n"
-        f"Роль: {role}\n\n"
-        + (
-            "Доступны админ-команды: /queue, /pending, /approve, /reject, /delete"
-            if is_admin
-            else "Чтобы получить права админа, ваш ID должен быть в <code>ADMIN_IDS</code> в .env"
-        )
-    )
+    lines = [
+        "🪪 <b>Кто вы</b>\n",
+        f"Telegram ID: <code>{message.from_user.id}</code>",
+        f"Username: @{safe(message.from_user.username) or '—'}",
+    ]
+    # Admin status is internal — only surface it (and admin tools) to admins.
+    if is_admin:
+        lines.append("Роль: 👑 администратор")
+        lines.append("\nАдмин-команды: /queue, /pending, /approve, /reject, /delete")
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("help"))
