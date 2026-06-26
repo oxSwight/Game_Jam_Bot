@@ -1,0 +1,70 @@
+import logging
+
+from aiogram import Bot
+
+from app.core.config import get_settings
+from app.schemas.registration import ApplicationRead
+from app.utils.html import safe
+
+logger = logging.getLogger(__name__)
+
+
+class NotificationService:
+    """Telegram-side notifications — keeps handlers free of message formatting."""
+
+    def __init__(self, bot: Bot) -> None:
+        self.bot = bot
+        self.settings = get_settings()
+
+    async def notify_admins_new_application(self, application: ApplicationRead) -> None:
+        if not self.settings.admin_ids:
+            return
+
+        tools = list(application.tools)
+        text = (
+            "🆕 <b>Новая заявка на регистрацию</b>\n\n"
+            f"ID: <code>{application.id}</code>\n"
+            f"Telegram: @{safe(application.telegram_username) or '—'} ({application.telegram_id})\n"
+            f"Ник: {safe(application.nickname)}\n"
+            f"Email: {safe(application.email)}\n"
+            f"Направление: {safe(application.skill_category_title)}\n"
+            f"Подкатегории: {', '.join(safe(s) for s in application.subcategories)}\n"
+            f"Опыт: {safe(application.experience_level)}\n"
+            f"Инструменты: {', '.join(safe(t) for t in tools)}\n"
+            f"Мотивация: {', '.join(safe(m) for m in application.motivations)}\n\n"
+            f"/approve {application.id[:8]}\n"
+            f"/reject {application.id[:8]}"
+        )
+
+        for admin_id in self.settings.admin_ids:
+            try:
+                await self.bot.send_message(admin_id, text)
+            except Exception:
+                logger.warning(
+                    "failed to notify admin %s about application %s",
+                    admin_id,
+                    application.id,
+                    exc_info=True,
+                )
+
+    async def notify_user_approved(self, telegram_id: int, nickname: str) -> None:
+        await self._safe_send(
+            telegram_id,
+            f"🎉 Ваша заявка одобрена!\n\nДобро пожаловать на платформу, <b>{safe(nickname)}</b>!",
+        )
+
+    async def notify_user_rejected(self, telegram_id: int) -> None:
+        await self._safe_send(
+            telegram_id,
+            "Ваша заявка не прошла проверку. Вы можете подать новую через /register",
+        )
+
+    async def _safe_send(self, chat_id: int, text: str) -> None:
+        try:
+            await self.bot.send_message(chat_id, text)
+        except Exception:
+            logger.warning(
+                "failed to send notification to chat_id=%s",
+                chat_id,
+                exc_info=True,
+            )
