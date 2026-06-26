@@ -48,7 +48,16 @@ class Application(Base, TimestampMixin):
     consent_accepted: Mapped[bool] = mapped_column(default=True, server_default="1")
 
     status: Mapped[ApplicationStatus] = mapped_column(
-        Enum(ApplicationStatus, native_enum=False, length=32),
+        # values_callable is critical: without it a non-native Enum stores the
+        # member NAME ("REJECTED"), but server_default and the partial unique
+        # index below use the lowercase VALUE ("rejected"). That mismatch made
+        # rejected rows count as "active" in the index and blocked re-registration.
+        Enum(
+            ApplicationStatus,
+            native_enum=False,
+            length=32,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=ApplicationStatus.PENDING_REVIEW,
         server_default=ApplicationStatus.PENDING_REVIEW.value,
         index=True,

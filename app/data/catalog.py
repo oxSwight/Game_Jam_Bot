@@ -41,9 +41,9 @@ CATEGORIES: tuple[Category, ...] = (
             (
                 ("programmer", "Programmer"),
                 ("frontend", "Frontend"),
-                ("gameplay", "Gameplay Programmer"),
+                ("gameplay", "Gameplay"),
                 ("backend_other", "Backend"),
-                ("tools_engine", "Tools / Engine Programmer"),
+                ("tools_engine", "Tools / Engine"),
                 ("graphics", "Graphics / Shaders"),
                 ("network", "Networking / Multiplayer"),
                 ("qa_automation", "QA / Automation"),
@@ -155,10 +155,10 @@ def role_titles(role_ids: list[str]) -> list[str]:
 
 
 EXPERIENCE_LEVELS: dict[str, str] = {
-    "beginner": "Beginner",
-    "intermediate": "Intermediate",
-    "game_jam": "Game jam experience",
-    "commercial": "Commercial experience",
+    "beginner": "Beginner · 0–6 мес.",
+    "intermediate": "Junior · 6–18 мес.",
+    "game_jam": "Middle · 18–36 мес.",
+    "commercial": "Senior · 36+ мес.",
 }
 
 TOOLS: tuple[str, ...] = (
