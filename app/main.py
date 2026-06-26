@@ -6,7 +6,12 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ErrorEvent
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    ErrorEvent,
+)
 
 from app.core.config import get_settings
 from app.core.database import init_db
@@ -19,6 +24,35 @@ from app.middlewares import AdminMiddleware, DbSessionMiddleware, ServicesMiddle
 from app.services.notification import NotificationService
 
 logger = logging.getLogger(__name__)
+
+USER_COMMANDS = [
+    BotCommand(command="register", description="Подать заявку"),
+    BotCommand(command="status", description="Статус вашей заявки"),
+    BotCommand(command="withdraw", description="Удалить заявку и подать заново"),
+    BotCommand(command="whoami", description="Ваш ID и роль"),
+    BotCommand(command="help", description="Список команд"),
+]
+
+ADMIN_COMMANDS = USER_COMMANDS + [
+    BotCommand(command="queue", description="👑 Очередь заявок"),
+    BotCommand(command="pending", description="👑 Сколько заявок на проверке"),
+    BotCommand(command="approve", description="👑 Одобрить заявку"),
+    BotCommand(command="reject", description="👑 Отклонить заявку"),
+    BotCommand(command="delete", description="👑 Удалить заявку"),
+]
+
+
+async def _setup_commands(bot: Bot, admin_ids: list[int]) -> None:
+    """Populate Telegram's '/' menu: base commands for everyone, plus the admin
+    set scoped to each admin's private chat so the tools are discoverable."""
+    await bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeDefault())
+    for admin_id in admin_ids:
+        try:
+            await bot.set_my_commands(
+                ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=admin_id)
+            )
+        except Exception:
+            logger.warning("could not set admin commands for %s", admin_id, exc_info=True)
 
 
 async def _create_storage() -> tuple[BaseStorage, object | None]:
@@ -74,7 +108,11 @@ async def main() -> None:
         )
 
     await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("bot starting", extra={"extra_fields": {"log_json": settings.log_json}})
+    await _setup_commands(bot, settings.admin_ids)
+    logger.info(
+        "bot starting",
+        extra={"extra_fields": {"log_json": settings.log_json, "admin_ids": settings.admin_ids}},
+    )
     try:
         await dp.start_polling(bot)
     finally:

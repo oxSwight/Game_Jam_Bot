@@ -88,6 +88,29 @@ class ApplicationService(BaseService):
     async def find_by_prefix(self, prefix: str) -> Application | None:
         return await self.applications.find_by_id_prefix(prefix)
 
+    async def withdraw_active(self, telegram_id: int) -> bool:
+        """Hard-delete the caller's own active (non-rejected) application so they
+        can register again. Used for self-service reset / cleaning up test data."""
+        user = await self.users.get_by_telegram_id(telegram_id)
+        if not user:
+            return False
+        application = await self.applications.get_active_for_user(user.id)
+        if not application:
+            return False
+        await self.applications.delete(application)
+        await self.session.flush()
+        return True
+
+    async def delete_by_prefix(self, prefix: str) -> Application | None:
+        """Admin hard-delete by id prefix. Returns the (now-deleted) application
+        so the caller can report which one was removed; logs cascade automatically."""
+        application = await self.applications.find_by_id_prefix(prefix)
+        if not application:
+            return None
+        await self.applications.delete(application)
+        await self.session.flush()
+        return application
+
     async def set_layer_score(
         self,
         application_id: str,

@@ -40,6 +40,7 @@ def queue_keyboard(
         builder.row(
             InlineKeyboardButton(text=f"✅ #{idx}", callback_data=f"qapr:{sid}:{page}"),
             InlineKeyboardButton(text=f"❌ #{idx}", callback_data=f"qrej:{sid}:{page}"),
+            InlineKeyboardButton(text=f"🗑 #{idx}", callback_data=f"qdel:{sid}:{page}"),
         )
 
     nav_row: list[InlineKeyboardButton] = []

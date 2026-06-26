@@ -158,6 +158,64 @@ async def cancel_registration(message: Message, state: FSMContext) -> None:
     )
 
 
+@router.message(Command("withdraw"))
+@router.message(Command("reset"))
+async def cmd_withdraw(
+    message: Message,
+    state: FSMContext,
+    services: ServiceContainer,
+) -> None:
+    """Self-service: delete your own active application so you can register anew."""
+    await state.clear()
+    removed = await services.applications.withdraw_active(message.from_user.id)
+    if removed:
+        await message.answer(
+            "🗑 Ваша заявка удалена.\nТеперь можно подать новую: /register",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        await message.answer("Активная заявка не найдена. Можно подать новую: /register")
+
+
+@router.message(Command("whoami"))
+@router.message(Command("id"))
+async def cmd_whoami(message: Message, is_admin: bool = False) -> None:
+    role = "👑 администратор" if is_admin else "обычный пользователь"
+    await message.answer(
+        "🪪 <b>Кто вы</b>\n\n"
+        f"Telegram ID: <code>{message.from_user.id}</code>\n"
+        f"Username: @{safe(message.from_user.username) or '—'}\n"
+        f"Роль: {role}\n\n"
+        + (
+            "Доступны админ-команды: /queue, /pending, /approve, /reject, /delete"
+            if is_admin
+            else "Чтобы получить права админа, ваш ID должен быть в <code>ADMIN_IDS</code> в .env"
+        )
+    )
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message, is_admin: bool = False) -> None:
+    lines = [
+        "🤖 <b>Команды</b>\n",
+        "/register — подать заявку",
+        "/status — статус вашей заявки",
+        "/withdraw — удалить свою заявку и подать заново",
+        "/whoami — ваш ID и роль",
+    ]
+    if is_admin:
+        lines += [
+            "\n<b>👑 Админ:</b>",
+            "/queue — интерактивная очередь заявок",
+            "/pending — счётчик заявок на проверке",
+            "/approve &lt;id&gt; — одобрить",
+            "/reject &lt;id&gt; — отклонить",
+            "/delete &lt;id&gt; — удалить заявку (тестовые данные)",
+            "/setlayer &lt;id&gt; &lt;1-5&gt; &lt;score&gt; — выставить score",
+        ]
+    await message.answer("\n".join(lines))
+
+
 @router.callback_query(F.data == "consent:decline")
 async def consent_decline(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()

@@ -70,6 +70,24 @@ async def cmd_reject(message: Message, services: ServiceContainer) -> None:
     )
 
 
+@router.message(Command("delete"))
+async def cmd_delete(message: Message, services: ServiceContainer) -> None:
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        await message.answer("Использование: /delete <id_prefix>")
+        return
+
+    application = await services.applications.delete_by_prefix(parts[1])
+    if application is None:
+        await message.answer("Заявка не найдена.")
+        return
+    await services.session.commit()
+    await message.answer(
+        f"🗑 Заявка <code>{application.id[:8]}</code> удалена "
+        f"(<b>{safe(_nickname(application))}</b>)."
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Inline review buttons attached to the new-application notification
 # --------------------------------------------------------------------------- #
