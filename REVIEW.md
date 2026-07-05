@@ -44,6 +44,26 @@ Added `tests/test_handlers_fsm.py`: `/history` (happy/missing-arg/not-found),
 `/event_activate` + `/team_new` + `/teams`, `/team_new` missing-arg,
 `/autoteams` without-teams. Every new command now has a happy and an error test.
 
+## Round 2 — deeper audit
+
+7. **FSM states captured slash-commands as free text.** In `reject_reason`,
+   `broadcast_message` and the `edit` states, any in-state message was consumed
+   — so typing `/queue` mid-reject silently became the rejection reason.
+   → Fixed: leading-`/` guard in the free-text handlers + `/cancel` handlers for
+   `reject_reason` and the edit states (previously only inline-button cancel).
+
+8. **`event_from_user` ordering — investigated, no bug.** `LanguageMiddleware`
+   relies on `data["event_from_user"]`. Confirmed aiogram registers its
+   `UserContextMiddleware` as an *outer* update middleware
+   (`dispatcher.py:84`), so it runs before our inner `dp.update.middleware`s and
+   the key is populated. Added `test_language_middleware.py` to lock the
+   resolution logic (saved lang > client lang > default).
+
+9. **Untested critical paths hardened.** Added a dispatcher/middleware wiring
+   smoke test and an automated regression for `_bootstrap_legacy_schema`
+   (the data-loss-sensitive legacy-DB adoption), which was previously only
+   verified by hand.
+
 ## Accepted trade-offs (documented, not bugs)
 
 - **Throttle also applies to registration multi-select taps** (0.5 s). A user

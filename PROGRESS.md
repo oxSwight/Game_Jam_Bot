@@ -33,11 +33,13 @@
 - ✅ README + architecture doc; DECISIONS.md; REVIEW.md.
 
 ## Status
-- Tests: **64 passed**. Ruff: **clean**. Migrations: upgrade/downgrade + legacy
-  adoption verified.
-- Per-command happy+error handler tests added (`test_handlers_fsm.py`); doing so
-  surfaced and fixed a real bug — `/events` & `/teams` referenced the wrong repo
-  path (`services.teams` → `services.events.teams`).
+- Tests: **78 passed**. Ruff: **clean**. Migrations: upgrade/downgrade + legacy
+  adoption verified (now with an automated regression test).
+- Audit round 1 caught: `/events` & `/teams` used the wrong repo path
+  (`services.teams` → `services.events.teams`).
+- Audit round 2 caught: FSM states captured slash-commands as free text
+  (fixed with guards + `/cancel`); added wiring smoke test, legacy-adoption
+  regression, and LanguageMiddleware resolution tests.
 
 ## Next / follow-ups (non-blocking)
 - Localize the registration FSM step prompts (currently RU-only).
