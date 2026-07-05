@@ -185,3 +185,45 @@ async def test_autoteams_without_teams_errors(services, session):
     msg = FakeMessage(f"/autoteams {ev.id}")
     await admin_extra.cmd_autoteams(msg, services)
     assert "команд" in msg.answers[0].lower()
+
+
+# --------------- free-text FSM guards & cancels --------------- #
+async def test_reject_reason_ignores_slash_command(services, session):
+    app = await _submit(services, session)
+    state = make_state()
+    await state.set_state(admin_h.AdminStates.reject_reason)
+    await state.update_data(reject_app_id=app.id)
+    msg = FakeMessage("/queue")
+    await admin_h.process_reject_reason(msg, state, services)
+    # command NOT consumed as a reason; application still pending
+    assert "команда" in msg.answers[0].lower()
+    still = await services.applications.find_by_prefix(app.id[:8])
+    assert still.status == ApplicationStatus.PENDING_REVIEW
+
+
+async def test_reject_reason_cancel(services):
+    state = make_state()
+    await state.set_state(admin_h.AdminStates.reject_reason)
+    msg = FakeMessage("/cancel")
+    await admin_h.cancel_reject_reason(msg, state)
+    assert await state.get_state() is None
+    assert "отменено" in msg.answers[0].lower()
+
+
+async def test_broadcast_compose_ignores_slash_command():
+    state = make_state()
+    await state.set_state(admin_extra.AdminStates.broadcast_message)
+    msg = FakeMessage("/stats")
+    await admin_extra.broadcast_compose(msg, state)
+    assert "команда" in msg.answers[0].lower()
+    # still waiting for real text, not advanced to confirm
+    assert await state.get_state() == admin_extra.AdminStates.broadcast_message.state
+
+
+async def test_edit_cancel(services, session):
+    await _submit(services, session, telegram_id=111, nickname="Original", email="o@x.com")
+    state = make_state(111)
+    await state.set_state(reg_h.EditStates.nickname)
+    msg = FakeMessage("/cancel", user_id=111)
+    await reg_h.cancel_edit(msg, state)
+    assert await state.get_state() is None

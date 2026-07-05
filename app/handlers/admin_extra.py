@@ -166,6 +166,9 @@ async def cancel_broadcast(message: Message, state: FSMContext) -> None:
 @router.message(AdminStates.broadcast_message)
 async def broadcast_compose(message: Message, state: FSMContext) -> None:
     text = message.html_text or (message.text or "")
+    if (message.text or "").startswith("/"):
+        await message.answer("Это команда. Введите текст рассылки или /cancel.")
+        return
     if len(text.strip()) < 2:
         await message.answer("Текст слишком короткий. Введите сообщение для рассылки.")
         return

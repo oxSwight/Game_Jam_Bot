@@ -165,11 +165,22 @@ async def cb_reject_reason_start(
     await callback.answer()
 
 
+@router.message(Command("cancel"), AdminStates.reject_reason)
+async def cancel_reject_reason(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Отклонение отменено.")
+
+
 @router.message(AdminStates.reject_reason)
 async def process_reject_reason(
     message: Message, state: FSMContext, services: ServiceContainer
 ) -> None:
     reason = (message.text or "").strip()
+    # Don't silently capture a slash-command as the rejection reason — the admin
+    # likely meant to run it. Nudge them to type a reason or /cancel first.
+    if reason.startswith("/"):
+        await message.answer("Это команда. Введите причину текстом или /cancel.")
+        return
     if len(reason) < 2:
         await message.answer("Причина слишком короткая. Повторите или нажмите «Без причины».")
         return

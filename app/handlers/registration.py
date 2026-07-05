@@ -231,6 +231,14 @@ async def edit_pick_email(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.message(Command("cancel"), EditStates.field)
+@router.message(Command("cancel"), EditStates.nickname)
+@router.message(Command("cancel"), EditStates.email)
+async def cancel_edit(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Изменение отменено.")
+
+
 @router.message(EditStates.nickname)
 async def edit_apply_nickname(
     message: Message, state: FSMContext, services: ServiceContainer
