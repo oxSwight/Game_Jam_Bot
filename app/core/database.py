@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -97,11 +98,15 @@ async def _bootstrap_legacy_schema() -> bool:
 def _run_alembic(command_name: str) -> None:
     """Run an Alembic command synchronously. Must be called off the event loop:
     env.py drives the async engine via asyncio.run, which can't nest inside an
-    already-running loop."""
+    already-running loop. Signals env.py to leave our logging config alone."""
     from alembic import command
 
-    cfg = _alembic_config()
-    getattr(command, command_name)(cfg, "head")
+    os.environ["ALEMBIC_SKIP_LOGGING_CONFIG"] = "1"
+    try:
+        cfg = _alembic_config()
+        getattr(command, command_name)(cfg, "head")
+    finally:
+        os.environ.pop("ALEMBIC_SKIP_LOGGING_CONFIG", None)
 
 
 async def run_migrations() -> None:

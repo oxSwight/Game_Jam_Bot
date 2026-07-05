@@ -64,6 +64,19 @@ Added `tests/test_handlers_fsm.py`: `/history` (happy/missing-arg/not-found),
    (the data-loss-sensitive legacy-DB adoption), which was previously only
    verified by hand.
 
+## Round 3 — found by actually running the bot
+
+10. **Alembic silenced the bot's logging.** On startup `setup_logging()` runs,
+    then `run_migrations()` invokes Alembic, whose `env.py` calls
+    `fileConfig(alembic.ini)` with the default `disable_existing_loggers=True`.
+    That disabled the app loggers and reset root to WARNING — so after startup
+    the bot polled but logged **nothing** ("bot starting", "Start polling",
+    errors all suppressed). → Fixed: `run_migrations` sets
+    `ALEMBIC_SKIP_LOGGING_CONFIG` so `env.py` skips `fileConfig` when invoked
+    in-process (CLI runs still honour alembic.ini). Verified by launching the
+    bot: full log stream now continues through migration into "Run polling for
+    bot @Game_Jem_bot".
+
 ## Accepted trade-offs (documented, not bugs)
 
 - **Throttle also applies to registration multi-select taps** (0.5 s). A user

@@ -6,6 +6,7 @@ async engine so ``sqlite+aiosqlite`` / ``postgresql+asyncpg`` URLs work directly
 """
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -18,7 +19,11 @@ from app.core.config import get_settings
 from app.models.base import Base
 
 config = context.config
-if config.config_file_name is not None:
+# When Alembic is run from the CLI, honour alembic.ini's logging config. When the
+# bot invokes migrations in-process (run_migrations sets this flag), skip it —
+# fileConfig would disable the app's already-configured loggers and silence the
+# bot's own logging after startup.
+if config.config_file_name is not None and not os.getenv("ALEMBIC_SKIP_LOGGING_CONFIG"):
     fileConfig(config.config_file_name)
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
