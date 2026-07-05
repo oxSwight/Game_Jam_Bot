@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import BigInteger, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.application import Application
 
 
 class User(Base, TimestampMixin):
@@ -16,7 +21,7 @@ class User(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     language: Mapped[str] = mapped_column(String(8), default="ru", server_default="ru")
 
-    applications: Mapped[list["Application"]] = relationship(
+    applications: Mapped[list[Application]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin",
