@@ -1,10 +1,12 @@
-.env
-players.db
-*.db
+.venv/
 __pycache__/
 *.pyc
-.venv/
-venv/
+.git/
+.gitignore
+*.db
 .bot.lock
+.env
+tests/
 .pytest_cache/
 .ruff_cache/
+*.md
