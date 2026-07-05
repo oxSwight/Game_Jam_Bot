@@ -14,13 +14,20 @@ from aiogram.types import (
 )
 
 from app.core.config import get_settings
-from app.core.database import init_db
+from app.core.database import run_migrations
 from app.core.instance_lock import InstanceLock
 from app.core.logging import setup_logging
 from app.core.redis import create_fsm_storage, create_redis
 from app.handlers.admin import router as admin_router
+from app.handlers.admin_extra import router as admin_extra_router
 from app.handlers.registration import router as registration_router
-from app.middlewares import AdminMiddleware, DbSessionMiddleware, ServicesMiddleware
+from app.middlewares import (
+    AdminMiddleware,
+    DbSessionMiddleware,
+    LanguageMiddleware,
+    ServicesMiddleware,
+    ThrottlingMiddleware,
+)
 from app.services.notification import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -28,7 +35,9 @@ logger = logging.getLogger(__name__)
 USER_COMMANDS = [
     BotCommand(command="register", description="Подать заявку"),
     BotCommand(command="status", description="Статус вашей заявки"),
+    BotCommand(command="edit", description="Изменить ник/email"),
     BotCommand(command="withdraw", description="Удалить заявку и подать заново"),
+    BotCommand(command="language", description="Язык / Language"),
     BotCommand(command="whoami", description="Ваш ID и роль"),
     BotCommand(command="help", description="Список команд"),
 ]
@@ -39,6 +48,12 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="approve", description="👑 Одобрить заявку"),
     BotCommand(command="reject", description="👑 Отклонить заявку"),
     BotCommand(command="delete", description="👑 Удалить заявку"),
+    BotCommand(command="stats", description="👑 Статистика"),
+    BotCommand(command="export", description="👑 Экспорт CSV"),
+    BotCommand(command="broadcast", description="👑 Рассылка одобренным"),
+    BotCommand(command="leaderboard", description="👑 Лидерборд"),
+    BotCommand(command="events", description="👑 События"),
+    BotCommand(command="teams", description="👑 Команды события"),
 ]
 
 
@@ -80,7 +95,7 @@ async def main() -> None:
 
     setup_logging()
     settings = get_settings()
-    await init_db()
+    await run_migrations()
 
     storage, redis = await _create_storage()
 
@@ -92,13 +107,17 @@ async def main() -> None:
 
     dp = Dispatcher(storage=storage)
 
-    # Middleware order matters: DB session → services → admin auth
+    # Middleware order matters (outer → inner):
+    # throttle (shed spam early) → DB session → services → language → admin auth
+    dp.update.middleware(ThrottlingMiddleware())
     dp.update.middleware(DbSessionMiddleware())
     dp.update.middleware(ServicesMiddleware(notification_service=notifications))
+    dp.update.middleware(LanguageMiddleware())
     dp.update.middleware(AdminMiddleware())
 
     dp.include_router(registration_router)
     dp.include_router(admin_router)
+    dp.include_router(admin_extra_router)
 
     @dp.error()
     async def global_error_handler(event: ErrorEvent) -> None:

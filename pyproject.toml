@@ -1,0 +1,28 @@
+[project]
+name = "gamejam-bot"
+version = "0.2.0"
+description = "Telegram registration & event bot for a GameJam platform"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["migrations/versions", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+# E501: line length handled by formatter. UP042: the status enums intentionally
+# subclass (str, Enum) with a custom values_callable; migrating to StrEnum would
+# disturb the carefully-tuned value serialization — see DECISIONS.md.
+ignore = ["E501", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# conftest sets env vars before importing app modules (settings read env at
+# import time); env.py imports models for their metadata side effect.
+"tests/conftest.py" = ["E402"]
+"migrations/env.py" = ["E402"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

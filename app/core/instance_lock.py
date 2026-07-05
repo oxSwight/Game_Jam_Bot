@@ -24,7 +24,7 @@ class InstanceLock:
                 "Stop it before starting a new one.",
                 file=sys.stderr,
             )
-            raise SystemExit(1)
+            raise SystemExit(1) from None
 
     def release(self) -> None:
         self._lock.release()
