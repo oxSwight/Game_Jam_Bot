@@ -77,6 +77,17 @@ Added `tests/test_handlers_fsm.py`: `/history` (happy/missing-arg/not-found),
     bot: full log stream now continues through migration into "Run polling for
     bot @Game_Jem_bot".
 
+## Round 4 — found by using the running bot
+
+11. **Registration FSM steps swallowed commands.** Typing `/events` (or any
+    command) on the nickname/email/engine-other/tools-other step was consumed by
+    the step handler — e.g. `/events` on the email step returned "invalid email
+    address" three times instead of running the command. Same class as #7 but in
+    the *registration* flow. → Fixed: a `not_command` filter on those six
+    text-input handlers so a slash-command doesn't match the step and falls
+    through to its own handler (`/cancel` still works — registered first).
+    Verified live: restarted the bot, commands mid-flow now dispatch normally.
+
 ## Accepted trade-offs (documented, not bugs)
 
 - **Throttle also applies to registration multi-select taps** (0.5 s). A user

@@ -39,6 +39,14 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
+def not_command(message: Message) -> bool:
+    """Filter: a message that is NOT a slash-command. Applied to free-text FSM
+    steps so a command (e.g. /events) typed mid-flow isn't swallowed as input —
+    the handler doesn't match, and the message falls through to its command
+    handler instead. /cancel still works: its handler is registered first."""
+    return not (message.text or "").startswith("/")
+
+
 def _status_label(status: str, lang: str) -> str:
     return t(f"status_{status}", lang) if status in {
         "pending_review", "approved", "rejected"
@@ -239,7 +247,7 @@ async def cancel_edit(message: Message, state: FSMContext) -> None:
     await message.answer("Изменение отменено.")
 
 
-@router.message(EditStates.nickname)
+@router.message(EditStates.nickname, not_command)
 async def edit_apply_nickname(
     message: Message, state: FSMContext, services: ServiceContainer
 ) -> None:
@@ -251,7 +259,7 @@ async def edit_apply_nickname(
     await _apply_edit(message, state, services, nickname=step.nickname)
 
 
-@router.message(EditStates.email)
+@router.message(EditStates.email, not_command)
 async def edit_apply_email(
     message: Message, state: FSMContext, services: ServiceContainer
 ) -> None:
@@ -361,7 +369,7 @@ async def consent_accept(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(RegistrationStates.nickname)
+@router.message(RegistrationStates.nickname, not_command)
 async def process_nickname(
     message: Message,
     state: FSMContext,
@@ -378,7 +386,7 @@ async def process_nickname(
     await message.answer("Введите ваш <b>email</b> для связи:")
 
 
-@router.message(RegistrationStates.email)
+@router.message(RegistrationStates.email, not_command)
 async def process_email(
     message: Message,
     state: FSMContext,
@@ -535,7 +543,7 @@ async def toggle_engine(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(RegistrationStates.engine_other)
+@router.message(RegistrationStates.engine_other, not_command)
 async def process_engine_other(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if len(text) < 2:
@@ -575,7 +583,7 @@ async def toggle_tool(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(RegistrationStates.tools_other)
+@router.message(RegistrationStates.tools_other, not_command)
 async def process_tools_other(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if len(text) < 2:

@@ -220,6 +220,16 @@ async def test_broadcast_compose_ignores_slash_command():
     assert await state.get_state() == admin_extra.AdminStates.broadcast_message.state
 
 
+def test_not_command_filter():
+    from app.handlers.registration import not_command
+
+    assert not_command(FakeMessage("neo@example.com")) is True
+    assert not_command(FakeMessage("Neo")) is True
+    assert not_command(FakeMessage("/events")) is False
+    assert not_command(FakeMessage("/leaderboard")) is False
+    assert not_command(FakeMessage("")) is True  # non-command empty text
+
+
 async def test_edit_cancel(services, session):
     await _submit(services, session, telegram_id=111, nickname="Original", email="o@x.com")
     state = make_state(111)
