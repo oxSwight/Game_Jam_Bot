@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.application import ApplicationService
+from app.services.event import EventService
 from app.services.notification import NotificationService
 from app.services.user import UserService
 
@@ -12,6 +13,7 @@ class ServiceContainer:
     session: AsyncSession
     users: UserService
     applications: ApplicationService
+    events: EventService
     notifications: NotificationService | None = None
 
     @classmethod
@@ -24,5 +26,6 @@ class ServiceContainer:
             session=session,
             users=UserService(session),
             applications=ApplicationService(session),
+            events=EventService(session),
             notifications=notifications,
         )

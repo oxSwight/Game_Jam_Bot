@@ -9,6 +9,13 @@ class UserRepository(BaseRepository[User]):
     def __init__(self, session) -> None:
         super().__init__(session, User)
 
+    async def get_language(self, telegram_id: int) -> str | None:
+        """Lightweight single-column lookup for the per-update language
+        middleware — avoids loading the user and all their applications."""
+        return await self.session.scalar(
+            select(User.language).where(User.telegram_id == telegram_id)
+        )
+
     async def get_by_telegram_id(self, telegram_id: int) -> User | None:
         result = await self.session.scalars(
             select(User)

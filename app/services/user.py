@@ -10,6 +10,17 @@ class UserService(BaseService):
     async def get_by_telegram_id(self, telegram_id: int) -> User | None:
         return await self.users.get_by_telegram_id(telegram_id)
 
+    async def get_language(self, telegram_id: int) -> str | None:
+        return await self.users.get_language(telegram_id)
+
+    async def set_language(self, telegram_id: int, language: str) -> User:
+        """Persist a UI-language choice, creating the user row if needed so the
+        preference survives even before they register an application."""
+        user = await self.users.get_or_create(telegram_id=telegram_id)
+        user.language = language
+        await self.session.flush()
+        return user
+
     async def get_profile(self, telegram_id: int) -> ApplicationRead | None:
         user = await self.users.get_by_telegram_id(telegram_id)
         if not user:

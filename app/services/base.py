@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.application import ApplicationRepository
+from app.repositories.event import EventRepository, TeamRepository
 from app.repositories.user import UserRepository
 
 
@@ -11,6 +12,8 @@ class BaseService:
         self.session = session
         self._users: UserRepository | None = None
         self._applications: ApplicationRepository | None = None
+        self._events: EventRepository | None = None
+        self._teams: TeamRepository | None = None
 
     @property
     def users(self) -> UserRepository:
@@ -23,3 +26,15 @@ class BaseService:
         if self._applications is None:
             self._applications = ApplicationRepository(self.session)
         return self._applications
+
+    @property
+    def events(self) -> EventRepository:
+        if self._events is None:
+            self._events = EventRepository(self.session)
+        return self._events
+
+    @property
+    def teams(self) -> TeamRepository:
+        if self._teams is None:
+            self._teams = TeamRepository(self.session)
+        return self._teams

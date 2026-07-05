@@ -1,4 +1,9 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from app.data.catalog import (
@@ -9,6 +14,25 @@ from app.data.catalog import (
     MOTIVATIONS,
     TOOLS,
 )
+
+
+def language_keyboard() -> InlineKeyboardMarkup:
+    from app.core.i18n import LANG_TITLES
+
+    builder = InlineKeyboardBuilder()
+    for code, title in LANG_TITLES.items():
+        builder.button(text=title, callback_data=f"lang:{code}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def edit_field_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ Никнейм", callback_data="edit:nickname")
+    builder.button(text="✏️ Email", callback_data="edit:email")
+    builder.button(text="✖️ Отмена", callback_data="edit:cancel")
+    builder.adjust(2, 1)
+    return builder.as_markup()
 
 
 def consent_keyboard() -> InlineKeyboardMarkup:

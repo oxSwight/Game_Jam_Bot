@@ -7,12 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from pydantic import ValidationError
 
-from app.utils.html import join_with_other, safe
-
-from app.schemas.registration import EmailStep, NicknameStep, RegistrationCreate
-from app.services import ServiceContainer
-from app.services.application import ActiveApplicationExistsError
-from app.states.registration import RegistrationStates
+from app.core.i18n import t
 from app.data.catalog import (
     CATEGORY_BY_ID,
     CONSENT_ITEMS,
@@ -25,21 +20,29 @@ from app.keyboards.registration import (
     categories_keyboard,
     confirm_keyboard,
     consent_keyboard,
+    edit_field_keyboard,
     engine_keyboard,
     experience_keyboard,
+    language_keyboard,
     motivation_keyboard,
     roles_keyboard,
     tools_keyboard,
 )
+from app.schemas.registration import EmailStep, NicknameStep, RegistrationCreate
+from app.services import ServiceContainer
+from app.services.application import ActiveApplicationExistsError
+from app.states.admin import EditStates
+from app.states.registration import RegistrationStates
+from app.utils.html import join_with_other, safe
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-STATUS_LABELS = {
-    "pending_review": "⏳ на ручной проверке",
-    "approved": "✅ одобрена",
-    "rejected": "❌ отклонена",
-}
+
+def _status_label(status: str, lang: str) -> str:
+    return t(f"status_{status}", lang) if status in {
+        "pending_review", "approved", "rejected"
+    } else status
 
 
 def _consent_text() -> str:
@@ -86,25 +89,24 @@ async def cmd_start(
     message: Message,
     state: FSMContext,
     services: ServiceContainer,
+    lang: str = "ru",
 ) -> None:
     await state.clear()
     profile = await services.users.get_profile(message.from_user.id)
     if profile:
-        status = STATUS_LABELS.get(profile.status, profile.status)
+        status = _status_label(profile.status, lang)
         await message.answer(
-            f"Привет, <b>{safe(profile.nickname)}</b>!\n\n"
-            f"Ваша заявка уже зарегистрирована.\n"
-            f"Статус: {safe(status)}\n"
-            f"ID: <code>{profile.id}</code>\n\n"
-            "Чтобы подать новую заявку, используйте /register",
+            t(
+                "already_registered",
+                lang,
+                nickname=safe(profile.nickname),
+                status=safe(status),
+                id=profile.id,
+            )
         )
         return
 
-    await message.answer(
-        "👋 Добро пожаловать в бот регистрации игроков!\n\n"
-        "Здесь вы можете подать заявку на участие в платформе.\n\n"
-        "Для регистрации: /register",
-    )
+    await message.answer(t("welcome", lang))
 
 
 @router.message(Command("register"))
@@ -113,12 +115,11 @@ async def cmd_register(
     message: Message,
     state: FSMContext,
     services: ServiceContainer,
+    lang: str = "ru",
 ) -> None:
     await state.clear()
     if await services.applications.has_active_application(message.from_user.id):
-        await message.answer(
-            "У вас уже есть активная заявка. Дождитесь проверки или обратитесь к администратору.",
-        )
+        await message.answer(t("active_application_exists", lang))
         return
 
     await state.set_state(RegistrationStates.consent)
@@ -126,10 +127,10 @@ async def cmd_register(
 
 
 @router.message(Command("status"))
-async def cmd_status(message: Message, services: ServiceContainer) -> None:
+async def cmd_status(message: Message, services: ServiceContainer, lang: str = "ru") -> None:
     profile = await services.users.get_profile(message.from_user.id)
     if not profile:
-        await message.answer("Заявка не найдена. Используйте /register")
+        await message.answer(t("status_not_found", lang))
         return
 
     await message.answer(
@@ -143,16 +144,16 @@ async def cmd_status(message: Message, services: ServiceContainer) -> None:
         f"Движок: {join_with_other(profile.engine, profile.engine_other)}\n"
         f"Инструменты: {join_with_other(profile.tools, profile.tools_other)}\n"
         f"Мотивация: {', '.join(safe(m) for m in profile.motivations)}\n"
-        f"Статус: {safe(STATUS_LABELS.get(profile.status, profile.status))}",
+        f"Статус: {safe(_status_label(profile.status, lang))}",
     )
 
 
 @router.message(Command("cancel"), RegistrationStates())
 @router.message(F.text == "❌ Отменить регистрацию", RegistrationStates())
-async def cancel_registration(message: Message, state: FSMContext) -> None:
+async def cancel_registration(message: Message, state: FSMContext, lang: str = "ru") -> None:
     await state.clear()
     await message.answer(
-        "Регистрация отменена.\nИспользуйте /register, чтобы начать снова.",
+        t("registration_cancelled", lang),
         reply_markup=ReplyKeyboardRemove(),
     )
 
@@ -163,17 +164,121 @@ async def cmd_withdraw(
     message: Message,
     state: FSMContext,
     services: ServiceContainer,
+    lang: str = "ru",
 ) -> None:
     """Self-service: delete your own active application so you can register anew."""
     await state.clear()
     removed = await services.applications.withdraw_active(message.from_user.id)
     if removed:
-        await message.answer(
-            "🗑 Ваша заявка удалена.\nТеперь можно подать новую: /register",
-            reply_markup=ReplyKeyboardRemove(),
-        )
+        await message.answer(t("withdraw_done", lang), reply_markup=ReplyKeyboardRemove())
     else:
-        await message.answer("Активная заявка не найдена. Можно подать новую: /register")
+        await message.answer(t("withdraw_none", lang))
+
+
+# --------------------------------------------------------------------------- #
+# Language selection
+# --------------------------------------------------------------------------- #
+@router.message(Command("language"))
+@router.message(Command("lang"))
+async def cmd_language(message: Message, lang: str = "ru") -> None:
+    await message.answer(t("language_prompt", lang), reply_markup=language_keyboard())
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def set_language(callback: CallbackQuery, services: ServiceContainer) -> None:
+    code = callback.data.split(":", 1)[1]
+    await services.users.set_language(callback.from_user.id, code)
+    await callback.message.edit_text(t("language_set", code))
+    await callback.answer()
+
+
+# --------------------------------------------------------------------------- #
+# Self-service edit of nickname / email
+# --------------------------------------------------------------------------- #
+@router.message(Command("edit"))
+async def cmd_edit(message: Message, state: FSMContext, services: ServiceContainer) -> None:
+    profile = await services.users.get_profile(message.from_user.id)
+    if not profile:
+        await message.answer("У вас нет активной заявки. /register")
+        return
+    await state.set_state(EditStates.field)
+    await message.answer(
+        "Что изменить?\n"
+        f"Текущий ник: <b>{safe(profile.nickname)}</b>\n"
+        f"Текущий email: <b>{safe(profile.email)}</b>",
+        reply_markup=edit_field_keyboard(),
+    )
+
+
+@router.callback_query(EditStates.field, F.data == "edit:cancel")
+async def edit_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text("Изменение отменено.")
+    await callback.answer()
+
+
+@router.callback_query(EditStates.field, F.data == "edit:nickname")
+async def edit_pick_nickname(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(EditStates.nickname)
+    await callback.message.edit_text("Введите новый <b>никнейм</b>:")
+    await callback.answer()
+
+
+@router.callback_query(EditStates.field, F.data == "edit:email")
+async def edit_pick_email(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(EditStates.email)
+    await callback.message.edit_text("Введите новый <b>email</b>:")
+    await callback.answer()
+
+
+@router.message(EditStates.nickname)
+async def edit_apply_nickname(
+    message: Message, state: FSMContext, services: ServiceContainer
+) -> None:
+    try:
+        step = NicknameStep(nickname=message.text or "")
+    except ValidationError as exc:
+        await message.answer(services.users.format_validation_error(exc))
+        return
+    await _apply_edit(message, state, services, nickname=step.nickname)
+
+
+@router.message(EditStates.email)
+async def edit_apply_email(
+    message: Message, state: FSMContext, services: ServiceContainer
+) -> None:
+    try:
+        step = EmailStep(email=message.text or "")
+    except ValidationError as exc:
+        await message.answer(services.users.format_validation_error(exc))
+        return
+    await _apply_edit(message, state, services, email=str(step.email))
+
+
+async def _apply_edit(
+    message: Message,
+    state: FSMContext,
+    services: ServiceContainer,
+    *,
+    nickname: str | None = None,
+    email: str | None = None,
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        ok = await services.applications.update_contact(
+            message.from_user.id, nickname=nickname, email=email
+        )
+        await services.session.commit()
+    except IntegrityError:
+        await services.session.rollback()
+        await message.answer("Такой ник или email уже заняты. Попробуйте другой.")
+        return
+    await state.clear()
+    if ok:
+        await message.answer("✅ Данные обновлены. /status — посмотреть профиль.")
+    else:
+        await message.answer("Активная заявка не найдена.")
 
 
 @router.message(Command("whoami"))
@@ -197,7 +302,9 @@ async def cmd_help(message: Message, is_admin: bool = False) -> None:
         "🤖 <b>Команды</b>\n",
         "/register — подать заявку",
         "/status — статус вашей заявки",
+        "/edit — изменить ник или email",
         "/withdraw — удалить свою заявку и подать заново",
+        "/language — сменить язык",
         "/whoami — ваш ID и роль",
     ]
     if is_admin:
@@ -207,8 +314,14 @@ async def cmd_help(message: Message, is_admin: bool = False) -> None:
             "/pending — счётчик заявок на проверке",
             "/approve &lt;id&gt; — одобрить",
             "/reject &lt;id&gt; — отклонить",
+            "/history &lt;id&gt; — история заявки",
             "/delete &lt;id&gt; — удалить заявку (тестовые данные)",
             "/setlayer &lt;id&gt; &lt;1-5&gt; &lt;score&gt; — выставить score",
+            "/stats — статистика · /export — CSV",
+            "/leaderboard — топ игроков",
+            "/broadcast — рассылка одобренным",
+            "/events, /event_new, /event_activate — события",
+            "/team_new, /teams, /autoteams — команды",
         ]
     await message.answer("\n".join(lines))
 
