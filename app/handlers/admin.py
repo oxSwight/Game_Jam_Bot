@@ -3,11 +3,15 @@ import logging
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import BaseFilter, Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.core.i18n import normalize_lang
 from app.data.layers import LAYER_COLUMNS, LAYER_NAMES
+from app.keyboards.admin import reject_reason_keyboard
 from app.models.application import Application, ApplicationStatus
 from app.services import ServiceContainer
+from app.states.admin import AdminStates
 from app.utils.html import safe
 
 logger = logging.getLogger(__name__)
@@ -136,6 +140,133 @@ async def _decide_from_card(
 
 
 # --------------------------------------------------------------------------- #
+# Reject with a reason (FSM: admin types free-text, it's logged + sent to user)
+# --------------------------------------------------------------------------- #
+@router.callback_query(F.data.startswith("rejr:"))
+async def cb_reject_reason_start(
+    callback: CallbackQuery, state: FSMContext, services: ServiceContainer
+) -> None:
+    prefix = callback.data.split(":", 1)[1]
+    application = await services.applications.find_by_prefix(prefix)
+    if application is None or application.status != ApplicationStatus.PENDING_REVIEW:
+        await callback.answer("Заявка уже обработана.", show_alert=True)
+        await _strip_keyboard(callback)
+        return
+    await state.set_state(AdminStates.reject_reason)
+    await state.update_data(
+        reject_app_id=application.id,
+        card_chat_id=callback.message.chat.id,
+        card_message_id=callback.message.message_id,
+    )
+    await callback.message.answer(
+        "📝 Введите причину отклонения (её увидит заявитель):",
+        reply_markup=reject_reason_keyboard(application.id),
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.reject_reason)
+async def process_reject_reason(
+    message: Message, state: FSMContext, services: ServiceContainer
+) -> None:
+    reason = (message.text or "").strip()
+    if len(reason) < 2:
+        await message.answer("Причина слишком короткая. Повторите или нажмите «Без причины».")
+        return
+    data = await state.get_data()
+    await _finalize_reject(message, state, services, data.get("reject_app_id"), reason)
+
+
+@router.callback_query(AdminStates.reject_reason, F.data.startswith("rejskip:"))
+async def cb_reject_skip(
+    callback: CallbackQuery, state: FSMContext, services: ServiceContainer
+) -> None:
+    data = await state.get_data()
+    await _finalize_reject(callback.message, state, services, data.get("reject_app_id"), None)
+    await callback.answer("Отклонено")
+
+
+@router.callback_query(F.data == "rejcancel")
+async def cb_reject_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text("Отклонение отменено.")
+    await callback.answer()
+
+
+async def _finalize_reject(
+    message: Message,
+    state: FSMContext,
+    services: ServiceContainer,
+    app_id: str | None,
+    reason: str | None,
+) -> None:
+    await state.clear()
+    if not app_id:
+        await message.answer("Сессия устарела — заявка не найдена.")
+        return
+    application = await services.applications.find_by_prefix(app_id)
+    if application is None or application.status != ApplicationStatus.PENDING_REVIEW:
+        await message.answer("Заявка уже обработана.")
+        return
+
+    nickname = _nickname(application)
+    await services.applications.update_status(
+        application.id,
+        ApplicationStatus.REJECTED,
+        actor_telegram_id=message.chat.id,
+        reason=reason,
+    )
+    await services.session.commit()
+    await _notify_user(application, ApplicationStatus.REJECTED, nickname, services, reason=reason)
+
+    suffix = f"\n<b>Причина:</b> {safe(reason)}" if reason else ""
+    await message.answer(f"❌ Заявка <b>{safe(nickname)}</b> отклонена.{suffix}")
+
+
+# --------------------------------------------------------------------------- #
+# History — audit log of a single application
+# --------------------------------------------------------------------------- #
+@router.callback_query(F.data.startswith("hist:"))
+async def cb_history(callback: CallbackQuery, services: ServiceContainer) -> None:
+    prefix = callback.data.split(":", 1)[1]
+    application = await services.applications.find_by_prefix(prefix)
+    if application is None:
+        await callback.answer("Заявка не найдена.", show_alert=True)
+        return
+    await callback.message.answer(await _render_history(application, services))
+    await callback.answer()
+
+
+@router.message(Command("history"))
+async def cmd_history(message: Message, services: ServiceContainer) -> None:
+    parts = (message.text or "").split()
+    if len(parts) < 2:
+        await message.answer("Использование: /history &lt;id_prefix&gt;")
+        return
+    application = await services.applications.find_by_prefix(parts[1])
+    if application is None:
+        await message.answer("Заявка не найдена.")
+        return
+    await message.answer(await _render_history(application, services))
+
+
+async def _render_history(application: Application, services: ServiceContainer) -> str:
+    logs = await services.applications.logs_for(application.id)
+    lines = [
+        f"🕓 <b>История заявки</b> <code>{application.id[:8]}</code> "
+        f"(<b>{safe(_nickname(application))}</b>)\n"
+    ]
+    if not logs:
+        lines.append("Событий пока нет.")
+    for log in logs:
+        ts = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "—"
+        actor = f" · by {log.actor_telegram_id}" if log.actor_telegram_id else ""
+        details = f" — {safe(log.details)}" if log.details else ""
+        lines.append(f"• <code>{ts}</code> {safe(log.action)}{actor}{details}")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
 # /queue — interactive, paginated list of pending applications
 # --------------------------------------------------------------------------- #
 @router.message(Command("queue"))
@@ -159,6 +290,20 @@ async def cb_queue_approve(callback: CallbackQuery, services: ServiceContainer) 
 @router.callback_query(F.data.startswith("qrej:"))
 async def cb_queue_reject(callback: CallbackQuery, services: ServiceContainer) -> None:
     await _decide_from_queue(callback, ApplicationStatus.REJECTED, services)
+
+
+@router.callback_query(F.data.startswith("qdel:"))
+async def cb_queue_delete(callback: CallbackQuery, services: ServiceContainer) -> None:
+    # callback data: "qdel:<short_id>:<page>"
+    _, prefix, page_str = callback.data.split(":")
+    page = int(page_str)
+    application = await services.applications.delete_by_prefix(prefix)
+    if application is None:
+        await callback.answer("Заявка не найдена.", show_alert=True)
+    else:
+        await services.session.commit()
+        await callback.answer(f"🗑 Удалено: {_nickname(application)}")
+    await _refresh_queue(callback, services, page)
 
 
 async def _decide_from_queue(
@@ -321,13 +466,19 @@ async def _notify_user(
     status: ApplicationStatus,
     nickname: str,
     services: ServiceContainer,
+    reason: str | None = None,
 ) -> None:
     if not (services.notifications and application.user):
         return
+    lang = normalize_lang(application.user.language)
     if status == ApplicationStatus.APPROVED:
-        await services.notifications.notify_user_approved(application.user.telegram_id, nickname)
+        await services.notifications.notify_user_approved(
+            application.user.telegram_id, nickname, lang=lang
+        )
     else:
-        await services.notifications.notify_user_rejected(application.user.telegram_id)
+        await services.notifications.notify_user_rejected(
+            application.user.telegram_id, reason=reason, lang=lang
+        )
 
 
 async def _finalize_card(callback: CallbackQuery, decision_line: str) -> None:

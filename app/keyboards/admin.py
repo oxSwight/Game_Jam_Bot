@@ -17,7 +17,34 @@ def review_keyboard(application_id: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Approve", callback_data=f"appr:{sid}")
     builder.button(text="❌ Reject", callback_data=f"rej:{sid}")
+    builder.button(text="📝 Reject + причина", callback_data=f"rejr:{sid}")
+    builder.button(text="🕓 История", callback_data=f"hist:{sid}")
+    builder.adjust(2, 2)
+    return builder.as_markup()
+
+
+def reject_reason_keyboard(application_id: str) -> InlineKeyboardMarkup:
+    """Shown while waiting for a rejection reason: skip (reject without one) or
+    abort the rejection entirely."""
+    sid = short_id(application_id)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⏭ Без причины", callback_data=f"rejskip:{sid}")
+    builder.button(text="✖️ Отмена", callback_data="rejcancel")
     builder.adjust(2)
+    return builder.as_markup()
+
+
+def broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Отправить всем", callback_data="bcast:send")
+    builder.button(text="✖️ Отмена", callback_data="bcast:cancel")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def history_keyboard(application_id: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🕓 История", callback_data=f"hist:{short_id(application_id)}")
     return builder.as_markup()
 
 

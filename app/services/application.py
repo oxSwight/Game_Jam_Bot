@@ -66,6 +66,7 @@ class ApplicationService(BaseService):
         application_id: str,
         status: ApplicationStatus,
         actor_telegram_id: int | None = None,
+        reason: str | None = None,
     ) -> Application | None:
         application = await self.applications.get_by_id(application_id)
         if not application:
@@ -76,10 +77,63 @@ class ApplicationService(BaseService):
                 application_id=application.id,
                 actor_telegram_id=actor_telegram_id,
                 action=f"status_{status.value}",
+                details=(f"reason={reason}" if reason else None),
             ),
         )
         await self.session.flush()
         return application
+
+    async def count_by_status(self) -> dict[str, int]:
+        return await self.applications.count_by_status()
+
+    async def count_by_category(self) -> list[tuple[str, int]]:
+        return await self.applications.count_by_category()
+
+    async def count_by_experience(self) -> list[tuple[str, int]]:
+        return await self.applications.count_by_experience()
+
+    async def list_all_with_users(self) -> list[Application]:
+        return await self.applications.list_all_with_users()
+
+    async def list_approved(self) -> list[Application]:
+        return await self.applications.list_by_status(ApplicationStatus.APPROVED)
+
+    async def leaderboard(self, limit: int = 10) -> list[Application]:
+        return await self.applications.list_scored(limit)
+
+    async def logs_for(self, application_id: str):
+        return await self.applications.logs_for(application_id)
+
+    async def update_contact(
+        self,
+        telegram_id: int,
+        *,
+        nickname: str | None = None,
+        email: str | None = None,
+    ) -> bool:
+        """Update the caller's nickname and/or email on their own active
+        application's user record. Returns False if they have no active
+        application. Raises IntegrityError upward on unique-constraint clashes."""
+        user = await self.users.get_by_telegram_id(telegram_id)
+        if not user:
+            return False
+        application = await self.applications.get_active_for_user(user.id)
+        if not application:
+            return False
+        if nickname is not None:
+            user.nickname = nickname
+        if email is not None:
+            user.email = email
+        self.session.add(
+            Log(
+                application_id=application.id,
+                actor_telegram_id=telegram_id,
+                action="contact_updated",
+                details=f"nickname={nickname or '-'} email={email or '-'}",
+            ),
+        )
+        await self.session.flush()
+        return True
 
     async def count_pending(self) -> int:
         return await self.applications.count_pending()
