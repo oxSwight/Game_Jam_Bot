@@ -238,7 +238,7 @@ async def cmd_events(message: Message, services: ServiceContainer) -> None:
         return
     lines = ["🎪 <b>События</b>\n"]
     for event in events:
-        teams = await services.teams.list_for_event(event.id)
+        teams = await services.events.teams.list_for_event(event.id)
         members = sum(len(t.members) for t in teams)
         active = " ⭐" if event.status == EventStatus.ACTIVE else ""
         lines.append(
@@ -301,7 +301,7 @@ async def cmd_teams(message: Message, services: ServiceContainer) -> None:
     event = await _resolve_event(message, services)
     if event is None:
         return
-    teams = await services.teams.list_for_event(event.id)
+    teams = await services.events.teams.list_for_event(event.id)
     if not teams:
         await message.answer("В событии пока нет команд. Создайте: /team_new")
         return

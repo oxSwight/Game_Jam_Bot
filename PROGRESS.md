@@ -33,8 +33,11 @@
 - ✅ README + architecture doc; DECISIONS.md; REVIEW.md.
 
 ## Status
-- Tests: **51 passed**. Ruff: **clean**. Migrations: upgrade/downgrade + legacy
+- Tests: **64 passed**. Ruff: **clean**. Migrations: upgrade/downgrade + legacy
   adoption verified.
+- Per-command happy+error handler tests added (`test_handlers_fsm.py`); doing so
+  surfaced and fixed a real bug — `/events` & `/teams` referenced the wrong repo
+  path (`services.teams` → `services.events.teams`).
 
 ## Next / follow-ups (non-blocking)
 - Localize the registration FSM step prompts (currently RU-only).

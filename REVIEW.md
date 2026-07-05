@@ -29,6 +29,21 @@ accepted with a reason.
    drives commands via a fake Message (stats, export empty+CSV, leaderboard
    empty+ranked, event_new happy/missing-arg/duplicate, teams no-active-event).
 
+6. **`/events` and `/teams` crashed on the happy path.** `cmd_events` /
+   `cmd_teams` referenced `services.teams`, but the teams repo lives at
+   `services.events.teams`; the container has no `teams` attribute. The earlier
+   `/teams` test only exercised the no-active-event *early return*, masking it.
+   → Fixed both call sites; added happy-path handler tests
+   (`test_handlers_fsm.py`) that list events/teams and would have caught it.
+
+## DoD closure — per-command happy + error tests
+
+Added `tests/test_handlers_fsm.py`: `/history` (happy/missing-arg/not-found),
+`/broadcast` (no-recipients / full compose→confirm→send), `/edit`
+(no-application / nickname happy / invalid), `/language`, `/events`,
+`/event_activate` + `/team_new` + `/teams`, `/team_new` missing-arg,
+`/autoteams` without-teams. Every new command now has a happy and an error test.
+
 ## Accepted trade-offs (documented, not bugs)
 
 - **Throttle also applies to registration multi-select taps** (0.5 s). A user
