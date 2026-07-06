@@ -15,6 +15,10 @@ from app.data.catalog import (
     TOOLS,
 )
 
+# Reply-keyboard label for aborting registration. Kept as a module constant so the
+# handler filter and the keyboard builder can't drift apart.
+CANCEL_LABEL = "Отменить регистрацию"
+
 
 def language_keyboard() -> InlineKeyboardMarkup:
     from app.core.i18n import LANG_TITLES
@@ -26,26 +30,37 @@ def language_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def captcha_keyboard(options: list[str]) -> InlineKeyboardMarkup:
+    """One row of emoji buttons for the anti-bot gate. Each button carries only
+    its index in callback_data (cap:<i>), never the emoji itself."""
+    builder = InlineKeyboardBuilder()
+    for idx, emoji in enumerate(options):
+        builder.button(text=emoji, callback_data=f"cap:{idx}")
+    builder.adjust(len(options))
+    return builder.as_markup()
+
+
 def edit_field_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✏️ Никнейм", callback_data="edit:nickname")
-    builder.button(text="✏️ Email", callback_data="edit:email")
-    builder.button(text="✖️ Отмена", callback_data="edit:cancel")
-    builder.adjust(2, 1)
+    builder.button(text="Никнейм", callback_data="edit:nickname")
+    builder.button(text="Email", callback_data="edit:email")
+    builder.button(text="Навыки и категория", callback_data="edit:skills")
+    builder.button(text="Отмена", callback_data="edit:cancel")
+    builder.adjust(2, 1, 1)
     return builder.as_markup()
 
 
 def consent_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Принимаю все условия", callback_data="consent:accept")
-    builder.button(text="❌ Отмена", callback_data="consent:decline")
+    builder.button(text="Принимаю все условия", callback_data="consent:accept")
+    builder.button(text="Отмена", callback_data="consent:decline")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def cancel_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.add(KeyboardButton(text="❌ Отменить регистрацию"))
+    builder.add(KeyboardButton(text=CANCEL_LABEL))
     return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
@@ -80,25 +95,25 @@ def roles_keyboard(
     nav_row: list[InlineKeyboardButton] = []
     if start > 0:
         nav_row.append(
-            InlineKeyboardButton(text="◀️ Назад", callback_data=f"role_page:{page - 1}")
+            InlineKeyboardButton(text="Назад", callback_data=f"role_page:{page - 1}")
         )
     if total_pages > 1:
         nav_row.append(
             InlineKeyboardButton(
-                text=f"· {page + 1}/{total_pages} ·",
+                text=f"{page + 1}/{total_pages}",
                 callback_data="role:noop",
             )
         )
     if start + page_size < len(items):
         nav_row.append(
-            InlineKeyboardButton(text="Далее ▶️", callback_data=f"role_page:{page + 1}")
+            InlineKeyboardButton(text="Далее", callback_data=f"role_page:{page + 1}")
         )
     if nav_row:
         builder.row(*nav_row)
 
     builder.row(
-        InlineKeyboardButton(text="✅ Готово", callback_data="role:done"),
-        InlineKeyboardButton(text="⬅️ К категориям", callback_data="nav:back_category"),
+        InlineKeyboardButton(text="Готово", callback_data="role:done"),
+        InlineKeyboardButton(text="К категориям", callback_data="nav:back_category"),
     )
     return builder.as_markup()
 
@@ -107,7 +122,7 @@ def experience_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for key, label in EXPERIENCE_LEVELS.items():
         builder.button(text=label, callback_data=f"exp:{key}")
-    builder.button(text="⬅️ Назад", callback_data="nav:back_roles")
+    builder.button(text="Назад", callback_data="nav:back_roles")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -119,8 +134,8 @@ def engine_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMar
         builder.button(text=f"{prefix}{engine}", callback_data=f"engine:{engine}")
     builder.adjust(1)
     builder.row(
-        InlineKeyboardButton(text="✅ Готово", callback_data="engine:done"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_exp"),
+        InlineKeyboardButton(text="Готово", callback_data="engine:done"),
+        InlineKeyboardButton(text="Назад", callback_data="nav:back_exp"),
     )
     return builder.as_markup()
 
@@ -132,8 +147,8 @@ def tools_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMark
         builder.button(text=f"{prefix}{tool}", callback_data=f"tool:{tool}")
     builder.adjust(1)
     builder.row(
-        InlineKeyboardButton(text="✅ Готово", callback_data="tool:done"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_engine"),
+        InlineKeyboardButton(text="Готово", callback_data="tool:done"),
+        InlineKeyboardButton(text="Назад", callback_data="nav:back_engine"),
     )
     return builder.as_markup()
 
@@ -145,15 +160,15 @@ def motivation_keyboard(selected: set[str]) -> InlineKeyboardMarkup:
         builder.button(text=f"{prefix}{item}", callback_data=f"mot:{item}")
     builder.adjust(1)
     builder.row(
-        InlineKeyboardButton(text="✅ Готово", callback_data="mot:done"),
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back_tools"),
+        InlineKeyboardButton(text="Готово", callback_data="mot:done"),
+        InlineKeyboardButton(text="Назад", callback_data="nav:back_tools"),
     )
     return builder.as_markup()
 
 
 def confirm_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Отправить заявку", callback_data="confirm:submit")
-    builder.button(text="🔄 Начать заново", callback_data="confirm:restart")
+    builder.button(text="Отправить заявку", callback_data="confirm:submit")
+    builder.button(text="Начать заново", callback_data="confirm:restart")
     builder.adjust(1)
     return builder.as_markup()

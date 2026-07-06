@@ -6,17 +6,23 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
+from app.core.config import get_settings
 from app.core.i18n import t
+from app.data.captcha import build_captcha
 from app.data.catalog import (
     CATEGORY_BY_ID,
     CONSENT_ITEMS,
     EXPERIENCE_LEVELS,
     MAIN_CATEGORIES,
+    role_ids_from_titles,
     role_titles,
 )
 from app.keyboards.registration import (
+    CANCEL_LABEL,
     cancel_keyboard,
+    captcha_keyboard,
     categories_keyboard,
     confirm_keyboard,
     consent_keyboard,
@@ -34,17 +40,34 @@ from app.services.application import ActiveApplicationExistsError
 from app.states.admin import EditStates
 from app.states.registration import RegistrationStates
 from app.utils.html import join_with_other, safe
+from app.utils.validation import contains_url
 
 router = Router()
 logger = logging.getLogger(__name__)
 
+# Upper bound for the free-text "Other" engine/tool inputs. The rest of the form
+# is pick-from-list; these two are the only open text fields a regular user can
+# submit, so we cap them to keep stored data (and rendered messages) sane.
+OTHER_TEXT_MAX = 64
+
 
 def not_command(message: Message) -> bool:
     """Filter: a message that is NOT a slash-command. Applied to free-text FSM
-    steps so a command (e.g. /events) typed mid-flow isn't swallowed as input —
+    steps so a command (e.g. /language) typed mid-flow isn't swallowed as input —
     the handler doesn't match, and the message falls through to its command
     handler instead. /cancel still works: its handler is registered first."""
     return not (message.text or "").startswith("/")
+
+
+async def _reset_on_url(message: Message, state: FSMContext, lang: str) -> bool:
+    """Anti-spam guard for every free-text step: if the answer carries a link,
+    wipe the whole FSM and tell the user to start over. Returns True when it
+    tripped, so callers bail out immediately."""
+    if contains_url(message.text):
+        await state.clear()
+        await message.answer(t("url_forbidden", lang), reply_markup=ReplyKeyboardRemove())
+        return True
+    return False
 
 
 def _status_label(status: str, lang: str) -> str:
@@ -56,7 +79,7 @@ def _status_label(status: str, lang: str) -> str:
 def _consent_text() -> str:
     items = "\n".join(f"• {item}" for item in CONSENT_ITEMS)
     return (
-        "🎮 <b>Регистрация на платформу GameJam</b>\n\n"
+        "<b>Регистрация в игровую группу</b>\n\n"
         "Перед началом подтвердите, что вы:\n"
         f"{items}\n\n"
         "Нажмите кнопку ниже, чтобы продолжить."
@@ -64,7 +87,7 @@ def _consent_text() -> str:
 
 
 def _build_summary(data: dict) -> str:
-    roles = ", ".join(safe(t) for t in role_titles(data.get("roles", []))) or "—"
+    roles = ", ".join(safe(title) for title in role_titles(data.get("roles", []))) or "—"
     engine = join_with_other(data.get("engine", []), data.get("engine_other"))
     tools = join_with_other(data.get("tools", []), data.get("tools_other"))
     motivations = ", ".join(safe(m) for m in data.get("motivations", []))
@@ -83,12 +106,17 @@ def _build_summary(data: dict) -> str:
 
 
 async def _go_to_motivation(message: Message, state: FSMContext) -> None:
-    await state.update_data(motivations=[])
+    data = await state.get_data()
+    # Fresh registration starts with nothing selected; an edit keeps the current
+    # picks so they come pre-checked and the player only changes what they want.
+    if not data.get("edit_mode"):
+        await state.update_data(motivations=[])
+        data = await state.get_data()
     await state.set_state(RegistrationStates.motivation)
     await message.answer(
         "<b>Шаг G — Мотивация</b>\n\n"
         "Что вас привлекает? (можно несколько):",
-        reply_markup=motivation_keyboard(set()),
+        reply_markup=motivation_keyboard(set(data.get("motivations", []))),
     )
 
 
@@ -109,12 +137,26 @@ async def cmd_start(
                 lang,
                 nickname=safe(profile.nickname),
                 status=safe(status),
-                id=profile.id,
+                id=safe(str(profile.player_code) if profile.player_code else profile.id),
             )
         )
         return
 
-    await message.answer(t("welcome", lang))
+    # Known returning player (registered before, no active application now) — the
+    # bot remembers them even if they left the group. Greet them back by name.
+    user = await services.users.get_by_telegram_id(message.from_user.id)
+    if user and user.nickname:
+        await message.answer(t("welcome_back", lang, nickname=safe(user.nickname)))
+        return
+
+    # First contact: greet in the region-detected language, and offer an explicit
+    # RU/EN switch so anyone the auto-detection guessed wrong can fix it in a tap.
+    # Returning users who already chose a language aren't nagged with the picker.
+    saved_lang = await services.users.get_language(message.from_user.id)
+    if saved_lang:
+        await message.answer(t("welcome", lang))
+    else:
+        await message.answer(t("welcome", lang), reply_markup=language_keyboard())
 
 
 @router.message(Command("register"))
@@ -130,8 +172,41 @@ async def cmd_register(
         await message.answer(t("active_application_exists", lang))
         return
 
+    # Queue cap: refuse new sign-ups once the pending backlog is full, so a flood
+    # can't grow the review queue without bound.
+    pending = await services.applications.count_pending()
+    if pending >= get_settings().pending_cap:
+        await message.answer(t("queue_full", lang))
+        return
+
+    # Anti-bot gate: the user must tap the named emoji before the form opens.
+    options, target_index = build_captcha()
+    await state.set_state(RegistrationStates.captcha)
+    await state.update_data(captcha_answer=target_index)
+    await message.answer(
+        t("captcha_prompt", lang, target=options[target_index]),
+        reply_markup=captcha_keyboard(options),
+    )
+
+
+@router.callback_query(RegistrationStates.captcha, F.data.startswith("cap:"))
+async def process_captcha(
+    callback: CallbackQuery, state: FSMContext, lang: str = "ru"
+) -> None:
+    chosen = int(callback.data.split(":", 1)[1])
+    data = await state.get_data()
+    target = data.get("captcha_answer")
+    if target is None or chosen != target:
+        # Wrong emoji = fail closed: abandon the whole registration.
+        await state.clear()
+        await callback.message.edit_text(t("captcha_failed", lang))
+        await callback.answer()
+        return
+
     await state.set_state(RegistrationStates.consent)
-    await message.answer(_consent_text(), reply_markup=consent_keyboard())
+    await state.update_data(captcha_answer=None)
+    await callback.message.edit_text(_consent_text(), reply_markup=consent_keyboard())
+    await callback.answer()
 
 
 @router.message(Command("status"))
@@ -141,9 +216,10 @@ async def cmd_status(message: Message, services: ServiceContainer, lang: str = "
         await message.answer(t("status_not_found", lang))
         return
 
+    membership = "в группе" if profile.is_active else "не в группе"
     await message.answer(
         f"<b>Ваш профиль</b>\n\n"
-        f"ID: <code>{profile.id}</code>\n"
+        f"ID игрока: <code>{profile.player_code or '—'}</code>\n"
         f"Ник: {safe(profile.nickname)}\n"
         f"Email: {safe(profile.email)}\n"
         f"Категория: {safe(MAIN_CATEGORIES.get(profile.main_category, profile.skill_category_title))}\n"
@@ -152,12 +228,13 @@ async def cmd_status(message: Message, services: ServiceContainer, lang: str = "
         f"Движок: {join_with_other(profile.engine, profile.engine_other)}\n"
         f"Инструменты: {join_with_other(profile.tools, profile.tools_other)}\n"
         f"Мотивация: {', '.join(safe(m) for m in profile.motivations)}\n"
-        f"Статус: {safe(_status_label(profile.status, lang))}",
+        f"Статус заявки: {safe(_status_label(profile.status, lang))}\n"
+        f"Членство: {membership}",
     )
 
 
 @router.message(Command("cancel"), RegistrationStates())
-@router.message(F.text == "❌ Отменить регистрацию", RegistrationStates())
+@router.message(F.text == CANCEL_LABEL, RegistrationStates())
 async def cancel_registration(message: Message, state: FSMContext, lang: str = "ru") -> None:
     await state.clear()
     await message.answer(
@@ -167,7 +244,6 @@ async def cancel_registration(message: Message, state: FSMContext, lang: str = "
 
 
 @router.message(Command("withdraw"))
-@router.message(Command("reset"))
 async def cmd_withdraw(
     message: Message,
     state: FSMContext,
@@ -239,6 +315,51 @@ async def edit_pick_email(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(EditStates.field, F.data == "edit:skills")
+async def edit_pick_skills(
+    callback: CallbackQuery, state: FSMContext, services: ServiceContainer
+) -> None:
+    """Re-run the questionnaire to update skills/category on an existing
+    application. We seed the current answers into FSM state and set edit_mode, so
+    every existing registration step is reused as-is (roles/engine/tools/… come
+    pre-selected); on confirm, confirm_submit updates the row instead of inserting
+    a new one (see the edit_mode branch there)."""
+    profile = await services.users.get_profile(callback.from_user.id)
+    if not profile:
+        await callback.answer("Активная заявка не найдена.", show_alert=True)
+        await state.clear()
+        return
+
+    await state.set_state(RegistrationStates.category)
+    await state.update_data(
+        edit_mode=True,
+        edit_app_id=profile.id,
+        # nickname/email are needed by the category-step guard and by the final
+        # payload; they're edited separately, so we carry the current values.
+        nickname=profile.nickname,
+        email=profile.email,
+        category_id=profile.main_category,
+        category_title=profile.skill_category_title,
+        roles=role_ids_from_titles(profile.subcategories),
+        role_page=0,
+        experience_level=profile.experience_level,
+        engine=list(profile.engine),
+        engine_other=profile.engine_other,
+        tools=list(profile.tools),
+        tools_other=profile.tools_other,
+        motivations=list(profile.motivations),
+        consent=True,
+    )
+    await callback.message.edit_text(
+        "<b>Изменение профиля</b>\n\n"
+        "Пройдите анкету заново — текущие ответы уже отмечены. Меняйте что нужно "
+        "и жмите «Готово» на каждом шаге.\n\n"
+        "<b>Шаг B — Категория</b>\nВыберите основное направление:",
+        reply_markup=categories_keyboard(),
+    )
+    await callback.answer()
+
+
 @router.message(Command("cancel"), EditStates.field)
 @router.message(Command("cancel"), EditStates.nickname)
 @router.message(Command("cancel"), EditStates.email)
@@ -249,8 +370,10 @@ async def cancel_edit(message: Message, state: FSMContext) -> None:
 
 @router.message(EditStates.nickname, not_command)
 async def edit_apply_nickname(
-    message: Message, state: FSMContext, services: ServiceContainer
+    message: Message, state: FSMContext, services: ServiceContainer, lang: str = "ru"
 ) -> None:
+    if await _reset_on_url(message, state, lang):
+        return
     try:
         step = NicknameStep(nickname=message.text or "")
     except ValidationError as exc:
@@ -261,8 +384,10 @@ async def edit_apply_nickname(
 
 @router.message(EditStates.email, not_command)
 async def edit_apply_email(
-    message: Message, state: FSMContext, services: ServiceContainer
+    message: Message, state: FSMContext, services: ServiceContainer, lang: str = "ru"
 ) -> None:
+    if await _reset_on_url(message, state, lang):
+        return
     try:
         step = EmailStep(email=message.text or "")
     except ValidationError as exc:
@@ -279,8 +404,6 @@ async def _apply_edit(
     nickname: str | None = None,
     email: str | None = None,
 ) -> None:
-    from sqlalchemy.exc import IntegrityError
-
     try:
         ok = await services.applications.update_contact(
             message.from_user.id, nickname=nickname, email=email
@@ -292,52 +415,28 @@ async def _apply_edit(
         return
     await state.clear()
     if ok:
-        await message.answer("✅ Данные обновлены. /status — посмотреть профиль.")
+        await message.answer("Данные обновлены. /status — посмотреть профиль.")
     else:
         await message.answer("Активная заявка не найдена.")
-
-
-@router.message(Command("whoami"))
-@router.message(Command("id"))
-async def cmd_whoami(message: Message, is_admin: bool = False) -> None:
-    lines = [
-        "🪪 <b>Кто вы</b>\n",
-        f"Telegram ID: <code>{message.from_user.id}</code>",
-        f"Username: @{safe(message.from_user.username) or '—'}",
-    ]
-    # Admin status is internal — only surface it (and admin tools) to admins.
-    if is_admin:
-        lines.append("Роль: 👑 администратор")
-        lines.append("\nАдмин-команды: /queue, /pending, /approve, /reject, /delete")
-    await message.answer("\n".join(lines))
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, is_admin: bool = False) -> None:
     lines = [
-        "🤖 <b>Команды</b>\n",
+        "<b>Команды</b>\n",
         "/register — подать заявку",
         "/status — статус вашей заявки",
-        "/edit — изменить ник или email",
+        "/edit — изменить ник, email, навыки и категорию",
         "/withdraw — удалить свою заявку и подать заново",
         "/language — сменить язык",
-        "/whoami — ваш ID и роль",
     ]
     if is_admin:
         lines += [
-            "\n<b>👑 Админ:</b>",
-            "/queue — интерактивная очередь заявок",
-            "/pending — счётчик заявок на проверке",
-            "/approve &lt;id&gt; — одобрить",
-            "/reject &lt;id&gt; — отклонить",
-            "/history &lt;id&gt; — история заявки",
-            "/delete &lt;id&gt; — удалить заявку (тестовые данные)",
-            "/setlayer &lt;id&gt; &lt;1-5&gt; &lt;score&gt; — выставить score",
-            "/stats — статистика · /export — CSV",
-            "/leaderboard — топ игроков",
+            "\n<b>Админ:</b>",
+            "/review — очередь заявок: одобрение и отклонение",
+            "/stats — статистика",
+            "/export — выгрузка CSV",
             "/broadcast — рассылка одобренным",
-            "/events, /event_new, /event_activate — события",
-            "/team_new, /teams, /autoteams — команды",
         ]
     await message.answer("\n".join(lines))
 
@@ -360,9 +459,8 @@ async def consent_accept(callback: CallbackQuery, state: FSMContext) -> None:
         logger.debug("could not delete consent message, removing keyboard instead")
         await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        "✅ Отлично!\n\n"
         "<b>Шаг A — Базовая информация</b>\n\n"
-        "Введите ваш <b>никнейм</b> (отображаемое имя на платформе):\n\n"
+        "Введите ваш <b>никнейм</b> (отображаемое имя в группе):\n\n"
         "<i>Можно отменить в любой момент — кнопка ниже.</i>",
         reply_markup=cancel_keyboard(),
     )
@@ -374,7 +472,10 @@ async def process_nickname(
     message: Message,
     state: FSMContext,
     services: ServiceContainer,
+    lang: str = "ru",
 ) -> None:
+    if await _reset_on_url(message, state, lang):
+        return
     try:
         step = NicknameStep(nickname=message.text or "")
     except ValidationError as exc:
@@ -391,7 +492,10 @@ async def process_email(
     message: Message,
     state: FSMContext,
     services: ServiceContainer,
+    lang: str = "ru",
 ) -> None:
+    if await _reset_on_url(message, state, lang):
+        return
     try:
         step = EmailStep(email=message.text or "")
     except ValidationError as exc:
@@ -399,6 +503,20 @@ async def process_email(
         return
 
     await state.update_data(email=str(step.email))
+
+    data = await state.get_data()
+    if data.get("awaiting_contact_fix"):
+        # Coming back from a duplicate nickname/email collision: they've now
+        # re-entered both, so jump straight back to confirm instead of making
+        # them re-walk category → roles → engine → tools → motivation.
+        await state.update_data(awaiting_contact_fix=False)
+        await state.set_state(RegistrationStates.confirm)
+        await message.answer(
+            "<b>Проверьте данные перед отправкой:</b>\n\n" + _build_summary(data),
+            reply_markup=confirm_keyboard(),
+        )
+        return
+
     await state.set_state(RegistrationStates.category)
     await message.answer(
         "<b>Шаг B — Категория</b>\n\n"
@@ -427,10 +545,14 @@ async def process_category(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Неизвестная категория.", show_alert=True)
         return
 
+    # Roles belong to a category, so switching category always clears them. When
+    # editing and re-confirming the SAME category, keep the current selection so
+    # the player doesn't have to re-pick roles just to tweak a later step.
+    keep_roles = data.get("edit_mode") and data.get("category_id") == category.id
     await state.update_data(
         category_id=category.id,
         category_title=category.title,
-        roles=[],
+        roles=data.get("roles", []) if keep_roles else [],
         role_page=0,
     )
     await state.set_state(RegistrationStates.roles)
@@ -493,23 +615,35 @@ async def toggle_role(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(RegistrationStates.experience, F.data.startswith("exp:"))
 async def process_experience(callback: CallbackQuery, state: FSMContext) -> None:
     level = callback.data.split(":", 1)[1]
-    await state.update_data(experience_level=level, engine=[], engine_other=None)
+    data = await state.get_data()
+    # Editing keeps the current engine selection (pre-checked); registration clears it.
+    if data.get("edit_mode"):
+        await state.update_data(experience_level=level)
+        engine = list(data.get("engine", []))
+    else:
+        await state.update_data(experience_level=level, engine=[], engine_other=None)
+        engine = []
     await state.set_state(RegistrationStates.engine)
     await callback.message.edit_text(
         "<b>Шаг D — Движок</b>\n\n"
         "Выберите движок, в котором работаете (можно несколько):",
-        reply_markup=engine_keyboard(set(), has_other=False),
+        reply_markup=engine_keyboard(set(engine), has_other="Other" in engine),
     )
     await callback.answer()
 
 
 async def _go_to_tools(message: Message, state: FSMContext) -> None:
-    await state.update_data(tools=[], tools_other=None)
+    data = await state.get_data()
+    # Editing keeps the current tools selection (pre-checked); registration clears it.
+    if not data.get("edit_mode"):
+        await state.update_data(tools=[], tools_other=None)
+        data = await state.get_data()
+    selected = set(data.get("tools", []))
     await state.set_state(RegistrationStates.tools)
     await message.answer(
         "<b>Шаг E — Инструменты</b>\n\n"
         "Выберите инструменты, с которыми работаете (можно несколько):",
-        reply_markup=tools_keyboard(set(), has_other=False),
+        reply_markup=tools_keyboard(selected, has_other="Other" in selected),
     )
 
 
@@ -544,10 +678,17 @@ async def toggle_engine(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(RegistrationStates.engine_other, not_command)
-async def process_engine_other(message: Message, state: FSMContext) -> None:
+async def process_engine_other(
+    message: Message, state: FSMContext, lang: str = "ru"
+) -> None:
+    if await _reset_on_url(message, state, lang):
+        return
     text = (message.text or "").strip()
     if len(text) < 2:
         await message.answer("Укажите движок:")
+        return
+    if len(text) > OTHER_TEXT_MAX:
+        await message.answer(f"Слишком длинно (максимум {OTHER_TEXT_MAX} символов). Короче:")
         return
     await state.update_data(engine_other=text)
     await _go_to_tools(message, state)
@@ -584,10 +725,17 @@ async def toggle_tool(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(RegistrationStates.tools_other, not_command)
-async def process_tools_other(message: Message, state: FSMContext) -> None:
+async def process_tools_other(
+    message: Message, state: FSMContext, lang: str = "ru"
+) -> None:
+    if await _reset_on_url(message, state, lang):
+        return
     text = (message.text or "").strip()
     if len(text) < 2:
         await message.answer("Укажите хотя бы один инструмент:")
+        return
+    if len(text) > OTHER_TEXT_MAX:
+        await message.answer(f"Слишком длинно (максимум {OTHER_TEXT_MAX} символов). Короче:")
         return
     await state.update_data(tools_other=text)
     await _go_to_motivation(message, state)
@@ -649,24 +797,53 @@ async def confirm_submit(
         await callback.answer(services.users.format_validation_error(exc), show_alert=True)
         return
 
+    if data.get("edit_mode"):
+        # Editing an existing profile: update the row in place (status preserved),
+        # don't create a new application.
+        updated = await services.applications.update_profile(callback.from_user.id, payload)
+        await services.session.commit()
+        await state.clear()
+        if updated:
+            await callback.message.edit_text(
+                "<b>Профиль обновлён.</b>\n\n" + _build_summary(data)
+            )
+            await callback.message.answer("Готово. /status — посмотреть профиль.")
+            await callback.answer("Обновлено")
+        else:
+            await callback.message.edit_text("Активная заявка не найдена. /register")
+            await callback.answer()
+        return
+
     try:
         application = await services.applications.submit_registration(payload)
+        await services.session.commit()
     except ActiveApplicationExistsError:
         await callback.answer("У вас уже есть активная заявка.", show_alert=True)
         return
-
-    # Commit explicitly here so the application is durably persisted BEFORE we
-    # notify admins. The DbSessionMiddleware would otherwise only commit after
-    # this handler returns — meaning a notification failure (or a crash mid-send)
-    # could leave admins pinged about an un-persisted row, or vice versa.
-    await services.session.commit()
+    except IntegrityError:
+        # nickname and email are UNIQUE — someone already took the one they chose.
+        # Roll back the failed unit of work and route them back to re-enter their
+        # contact details rather than dead-ending on the confirm screen with a
+        # cryptic error they can only repeat. Their category/roles/engine/etc. stay
+        # in FSM data, so re-entering nickname+email returns them straight to
+        # confirm (see the awaiting_contact_fix branch in process_email).
+        await services.session.rollback()
+        await state.update_data(awaiting_contact_fix=True)
+        await state.set_state(RegistrationStates.nickname)
+        await callback.answer(
+            "Такой ник или email уже заняты. Введите их заново.", show_alert=True
+        )
+        await callback.message.answer("Введите другой <b>никнейм</b>:")
+        return
 
     await state.clear()
+    # Admins are NOT pushed a message per application (that would burn Telegram's
+    # rate limits under a flood). They pull the queue on demand via /review.
     await callback.message.edit_text(
-        "✅ <b>Заявка отправлена!</b>\n\n"
+        "<b>Заявка отправлена.</b>\n\n"
         f"Ваш ID: <code>{application.id}</code>\n\n"
-        "Статус: <b>на ручной проверке</b>\n"
-        "Мы свяжемся с вами по email после проверки.\n\n"
+        "Статус: на ручной проверке.\n"
+        "После одобрения вы получите персональную ссылку на вступление в группу.\n\n"
         "Проверить статус: /status",
     )
     await callback.message.answer("Регистрация завершена.", reply_markup=ReplyKeyboardRemove())
@@ -675,18 +852,7 @@ async def confirm_submit(
         "application submitted",
         extra={"extra_fields": {"application_id": application.id, "telegram_id": callback.from_user.id}},
     )
-
-    if services.notifications:
-        logger.debug("dispatching admin notification for application %s", application.id)
-        await services.notifications.notify_admins_new_application(application)
-        logger.debug("admin notification dispatch returned for application %s", application.id)
-    else:
-        logger.warning(
-            "notification service unavailable — admins NOT notified about application %s",
-            application.id,
-        )
-
-    await callback.answer("Заявка принята!")
+    await callback.answer("Заявка принята")
 
 
 @router.callback_query(F.data == "nav:back_category")

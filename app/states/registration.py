@@ -2,6 +2,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class RegistrationStates(StatesGroup):
+    captcha = State()       # anti-bot emoji gate, before anything else
     consent = State()
     nickname = State()
     email = State()
