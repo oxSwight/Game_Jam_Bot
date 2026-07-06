@@ -146,7 +146,9 @@ class ApplicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    player_code: int | None = None
     status: str
+    is_active: bool = False
     nickname: str | None = None
     email: str | None = None
     main_category: str

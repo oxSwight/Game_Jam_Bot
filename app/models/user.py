@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, String
+from sqlalchemy import BigInteger, Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -20,6 +20,12 @@ class User(Base, TimestampMixin):
     nickname: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     language: Mapped[str] = mapped_column(String(8), default="ru", server_default="ru")
+    # Whether the player is currently a member of the gated group. Flipped by the
+    # chat_member membership handler: True on join, False on leave/kick. A returning
+    # player is still known (this row persists), so /start greets them back.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
 
     applications: Mapped[list[Application]] = relationship(
         back_populates="user",

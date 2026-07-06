@@ -136,6 +136,30 @@ CATEGORIES: tuple[Category, ...] = (
 
 CATEGORY_BY_ID: dict[str, Category] = {c.id: c for c in CATEGORIES}
 
+# Leading digit of a player's public id, keyed by category — a "region code" à la
+# Genshin, so a glance at the id tells you the discipline (1xxxx = programmer,
+# 3xxxx = 2D artist, …). Reorder freely; each digit just needs to stay unique.
+CATEGORY_ID_PREFIX: dict[str, int] = {
+    "programming": 1,
+    "game_design": 2,
+    "art_2d": 3,
+    "art_3d": 4,
+    "audio": 5,
+    "management": 6,
+}
+
+# Width of the per-category counter; player_code = prefix * 10**PLAYER_CODE_WIDTH + n.
+# 6 → seven-digit ids with room for 1,000,000 players per discipline
+# (programming 1000001..1999999, game_design 2000001.., …). Bump higher for more
+# headroom — BigInteger stores it, and each category's block stays disjoint.
+PLAYER_CODE_WIDTH = 6
+
+
+def category_code_base(category_id: str) -> int:
+    """First player_code in a category's block (e.g. programming -> 10000)."""
+    prefix = CATEGORY_ID_PREFIX.get(category_id, 9)
+    return prefix * (10 ** PLAYER_CODE_WIDTH)
+
 ROLE_BY_ID: dict[str, Role] = {
     role.id: role for category in CATEGORIES for role in category.roles
 }
@@ -152,6 +176,19 @@ MAIN_CATEGORIES: dict[str, str] = {c.id: c.title for c in CATEGORIES}
 def role_titles(role_ids: list[str]) -> list[str]:
     """Resolve a list of role ids to their human titles (skips unknown ids)."""
     return [ROLE_BY_ID[r].title for r in role_ids if r in ROLE_BY_ID]
+
+
+# Reverse of ROLE_BY_ID's title view: titles are globally unique, so we can map a
+# stored role title back to its id — used to pre-select current roles when a
+# player edits their profile.
+ROLE_ID_BY_TITLE: dict[str, str] = {
+    role.title: role.id for category in CATEGORIES for role in category.roles
+}
+
+
+def role_ids_from_titles(titles: list[str]) -> list[str]:
+    """Resolve stored role titles back to their ids (skips unknown titles)."""
+    return [ROLE_ID_BY_TITLE[title] for title in titles if title in ROLE_ID_BY_TITLE]
 
 
 EXPERIENCE_LEVELS: dict[str, str] = {
