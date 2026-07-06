@@ -1,4 +1,4 @@
-from app.data.layers import LAYER_COLUMNS
+from app.data.catalog import PLAYER_CODE_WIDTH, category_code_base
 from app.models.application import Application, ApplicationStatus
 from app.models.log import Log
 from app.schemas.registration import ApplicationRead, RegistrationCreate
@@ -31,8 +31,14 @@ class ApplicationService(BaseService):
         user.nickname = payload.nickname
         user.email = str(payload.email)
 
+        player_code = await self._next_player_code(payload.main_category)
+
         application = Application(
             user_id=user.id,
+            player_code=player_code,
+            # Snapshot the contact details onto the row itself (see model note).
+            nickname=payload.nickname,
+            email=str(payload.email),
             main_category=payload.main_category,
             blueprint_subcategory=payload.blueprint_subcategory,
             skill_category_id=payload.skill_category_id,
@@ -60,6 +66,15 @@ class ApplicationService(BaseService):
         await self.session.flush()
 
         return UserService._to_read(user, application)
+
+    async def _next_player_code(self, category_id: str) -> int:
+        """Assign the next category-coded public id (e.g. 10007). Single polling
+        instance means this max()+1 is race-free enough; the unique index is the
+        backstop."""
+        base = category_code_base(category_id)
+        block = 10 ** PLAYER_CODE_WIDTH
+        current = await self.applications.max_player_code_in_block(base, block)
+        return (current or base) + 1
 
     async def update_status(
         self,
@@ -98,12 +113,6 @@ class ApplicationService(BaseService):
     async def list_approved(self) -> list[Application]:
         return await self.applications.list_by_status(ApplicationStatus.APPROVED)
 
-    async def leaderboard(self, limit: int = 10) -> list[Application]:
-        return await self.applications.list_scored(limit)
-
-    async def logs_for(self, application_id: str):
-        return await self.applications.logs_for(application_id)
-
     async def update_contact(
         self,
         telegram_id: int,
@@ -122,8 +131,10 @@ class ApplicationService(BaseService):
             return False
         if nickname is not None:
             user.nickname = nickname
+            application.nickname = nickname  # keep the row's snapshot in sync
         if email is not None:
             user.email = email
+            application.email = email
         self.session.add(
             Log(
                 application_id=application.id,
@@ -135,11 +146,66 @@ class ApplicationService(BaseService):
         await self.session.flush()
         return True
 
+    async def update_profile(
+        self, telegram_id: int, payload: RegistrationCreate
+    ) -> bool:
+        """Overwrite the skill/category fields of the caller's active application
+        in place — lets a player refine their roles, experience, engine, tools and
+        motivation over time WITHOUT losing their (possibly approved) status or
+        creating a new row. Nickname/email are managed separately via update_contact.
+        Returns False if they have no active application."""
+        user = await self.users.get_by_telegram_id(telegram_id)
+        if not user:
+            return False
+        application = await self.applications.get_active_for_user(user.id)
+        if not application:
+            return False
+
+        # If the discipline changed, the player_code's category prefix would go
+        # stale, so re-issue it into the new category's block (also covers legacy
+        # rows that never got a code). The old number is simply retired.
+        category_changed = application.main_category != payload.main_category
+        old_code = application.player_code
+        if category_changed or application.player_code is None:
+            application.player_code = await self._next_player_code(payload.main_category)
+
+        application.main_category = payload.main_category
+        application.blueprint_subcategory = payload.blueprint_subcategory
+        application.skill_category_id = payload.skill_category_id
+        application.skill_category_title = payload.skill_category_title
+        application.subcategories = payload.subcategories
+        application.experience_level = payload.experience_level
+        application.engine = payload.engine
+        application.engine_other = payload.engine_other
+        application.tools = payload.tools
+        application.tools_other = payload.tools_other
+        application.motivations = payload.motivations
+
+        self.session.add(
+            Log(
+                application_id=application.id,
+                actor_telegram_id=telegram_id,
+                action="profile_updated",
+                details=f"category={payload.main_category} roles={len(payload.subcategories)}",
+            ),
+        )
+        if application.player_code != old_code:
+            self.session.add(
+                Log(
+                    application_id=application.id,
+                    actor_telegram_id=telegram_id,
+                    action="player_code_reassigned",
+                    details=f"{old_code} -> {application.player_code}",
+                ),
+            )
+        await self.session.flush()
+        return True
+
     async def count_pending(self) -> int:
         return await self.applications.count_pending()
 
-    async def list_pending(self, *, limit: int, offset: int) -> list[Application]:
-        return await self.applications.list_pending(limit=limit, offset=offset)
+    async def first_pending(self) -> Application | None:
+        return await self.applications.first_pending()
 
     async def find_by_prefix(self, prefix: str) -> Application | None:
         return await self.applications.find_by_id_prefix(prefix)
@@ -156,36 +222,3 @@ class ApplicationService(BaseService):
         await self.applications.delete(application)
         await self.session.flush()
         return True
-
-    async def delete_by_prefix(self, prefix: str) -> Application | None:
-        """Admin hard-delete by id prefix. Returns the (now-deleted) application
-        so the caller can report which one was removed; logs cascade automatically."""
-        application = await self.applications.find_by_id_prefix(prefix)
-        if not application:
-            return None
-        await self.applications.delete(application)
-        await self.session.flush()
-        return application
-
-    async def set_layer_score(
-        self,
-        application_id: str,
-        layer: int,
-        score: float,
-        actor_telegram_id: int | None = None,
-    ) -> Application | None:
-        application = await self.applications.get_by_id(application_id)
-        if not application:
-            return None
-        column = LAYER_COLUMNS[layer]
-        setattr(application, column, score)
-        self.session.add(
-            Log(
-                application_id=application.id,
-                actor_telegram_id=actor_telegram_id,
-                action=f"layer_{layer}_set",
-                details=f"score={score}",
-            ),
-        )
-        await self.session.flush()
-        return application

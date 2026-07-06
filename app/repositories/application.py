@@ -2,7 +2,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.models.application import Application, ApplicationStatus
-from app.models.log import Log
 from app.repositories.base import BaseRepository
 
 
@@ -74,26 +73,15 @@ class ApplicationRepository(BaseRepository[Application]):
         )
         return list(result.all())
 
-    async def list_scored(self, limit: int) -> list[Application]:
-        """Approved applications ordered by summed layer score (desc), for the
-        leaderboard. Sorting happens in Python because layers are nullable and
-        the 'unset = 0' rule is easier to express there than in portable SQL."""
-        result = await self.session.scalars(
-            select(Application)
-            .where(Application.status == ApplicationStatus.APPROVED)
-            .options(selectinload(Application.user))
+    async def max_player_code_in_block(self, base: int, block: int) -> int | None:
+        """Highest player_code already assigned in a category's [base, base+block)
+        window — the seed for the next code in that discipline."""
+        return await self.session.scalar(
+            select(func.max(Application.player_code)).where(
+                Application.player_code >= base,
+                Application.player_code < base + block,
+            )
         )
-        apps = [a for a in result.all() if a.has_any_score]
-        apps.sort(key=lambda a: a.total_score, reverse=True)
-        return apps[:limit]
-
-    async def logs_for(self, application_id: str) -> list[Log]:
-        result = await self.session.scalars(
-            select(Log)
-            .where(Log.application_id == application_id)
-            .order_by(Log.created_at.asc())
-        )
-        return list(result.all())
 
     async def count_pending(self) -> int:
         result = await self.session.scalar(
@@ -103,13 +91,14 @@ class ApplicationRepository(BaseRepository[Application]):
         )
         return int(result or 0)
 
-    async def list_pending(self, *, limit: int, offset: int) -> list[Application]:
+    async def first_pending(self) -> Application | None:
+        """The oldest application still awaiting review — the head of the FIFO
+        review queue that /review walks through one card at a time."""
         result = await self.session.scalars(
             select(Application)
             .where(Application.status == ApplicationStatus.PENDING_REVIEW)
             .order_by(Application.created_at.asc())
             .options(selectinload(Application.user))
-            .limit(limit)
-            .offset(offset),
+            .limit(1),
         )
-        return list(result.all())
+        return result.first()
