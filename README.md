@@ -1,26 +1,39 @@
-# GameJam Registration Bot
+# GameJam Gateway Bot
 
-Telegram bot (aiogram 3) for registering players onto a GameJam platform, with an
-admin review workflow, event/team management, and a five-layer scoring system.
+Telegram bot (aiogram 3) that acts as a hardened **gateway** into a closed game
+group. It vets applicants through a structured skills questionnaire and, on
+approval, mints a **single-use invite link** into the private group. All the
+actual gameplay and team-forming happen inside the group — this bot is only the
+door and its lock.
 
 ## Features
 
 **For players**
+- Anti-bot **emoji CAPTCHA** before the form opens.
 - Guided registration FSM: consent → nickname → email → category → role(s) →
   experience → engine → tools → motivation → confirm.
-- `/status` — view your application, `/edit` — change nickname/email,
+- On approval: a personal, single-use group invite link is delivered by DM.
+- `/status` — view your application, `/edit` — change nickname/email/skills,
   `/withdraw` — delete and re-apply, `/language` — switch RU/EN UI.
 
 **For admins**
-- New-application notifications with inline **Approve / Reject / Reject+reason / History**.
-- `/queue` — interactive paginated review queue (approve/reject/delete in place).
-- `/pending`, `/approve`, `/reject`, `/history`, `/delete` — text commands.
+- `/review` — one card at a time, swipe-through queue. **Approve** / **Reject**
+  inline; acting on a card edits it in place to the next pending application. No
+  per-application push notifications (that would blow Telegram's rate limits).
 - `/stats` — counts by status/category/experience + approval rate.
-- `/export` — CSV of all applications (Excel-friendly UTF-8 BOM).
-- `/leaderboard` — approved players ranked by summed layer scores.
+- `/export` — CSV of all applications (Excel-friendly UTF-8 BOM, formula-injection safe).
 - `/broadcast` — flood-safe message to all approved players (compose → confirm → send).
-- **Events & teams**: `/event_new`, `/events`, `/event_activate`, `/team_new`,
-  `/teams`, `/autoteams` (round-robin balance), `/setlayer` to score.
+
+## Defense echelons (anti-bot / anti-spam)
+
+1. **Throttling** — one action per second per user; sustained flooding earns a
+   silent 5-minute **shadowban** (every update dropped, no feedback at all).
+2. **CAPTCHA** — a scripted client can't know which named emoji to tap; a wrong
+   tap cancels registration.
+3. **Queue cap** — `/register` is refused once `PENDING_CAP` (default 300)
+   applications are awaiting review.
+4. **Link ban** — any http/https/`t.me` link in a free-text answer instantly
+   resets the whole registration flow.
 
 ## Architecture
 
@@ -28,7 +41,7 @@ Layered, with dependency injection via middleware:
 
 ```
 Telegram Update
-  → ThrottlingMiddleware   (per-user anti-spam)
+  → ThrottlingMiddleware   (per-user rate limit + shadowban)
   → DbSessionMiddleware    (one AsyncSession per update, commit/rollback)
   → ServicesMiddleware     (builds ServiceContainer)
   → LanguageMiddleware     (resolves UI language → data["lang"])
@@ -37,44 +50,44 @@ Telegram Update
 ```
 
 - **handlers/** — aiogram routers (thin; formatting + flow only).
-- **services/** — business logic; own the unit of work, emit audit `Log`s.
+- **services/** — business logic; own the unit of work, emit audit `Log`s, and
+  mint invite links via the Bot API.
 - **repositories/** — query objects over the ORM models.
-- **models/** — SQLAlchemy 2.0 mapped classes.
+- **models/** — SQLAlchemy 2.0 mapped classes (`User`, `Application`, `Log`).
 - **schemas/** — Pydantic validation for every registration step.
-- **data/** — static catalog (roles, engines, tools) and scoring layers.
+- **data/** — static catalog (roles, engines, tools) and the CAPTCHA pool.
 - **core/** — config, database, i18n, redis, logging, instance lock.
 
 Key correctness guarantees:
 - **One active application per user** is enforced by a partial unique index
   (`status != 'rejected'`), closing the check-then-insert race at the DB level.
-- **Commit-before-notify**: applications are durably persisted before admins are
-  pinged, so a send failure never leaves a phantom notification.
+- **Commit-before-invite**: an approval is durably persisted before the invite
+  link is minted and DMed.
 
 ## Setup
+
+Database is **PostgreSQL** (production). The bot must be an **admin of the target
+group** with permission to invite/add members, and `GROUP_CHAT_ID` must point at
+that group.
 
 ```bash
 python -m venv .venv && . .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-cp .env.example .env                                # fill in BOT_TOKEN and ADMIN_IDS
+cp .env.example .env                                # BOT_TOKEN, ADMIN_IDS, GROUP_CHAT_ID, DATABASE_URL
 python -m app.main
 ```
-
-`FSM_STORAGE=memory` runs without Redis (state is lost on restart). For
-production set `REDIS_URL` and leave `FSM_STORAGE=redis`.
 
 ### Docker
 
 ```bash
-cp .env.example .env    # set BOT_TOKEN, ADMIN_IDS
+cp .env.example .env    # set BOT_TOKEN, ADMIN_IDS, GROUP_CHAT_ID
 docker compose up -d    # bot + postgres + redis
 ```
 
 ## Database migrations
 
-Schema is managed by **Alembic**. Migrations run automatically on startup
-(`run_migrations()` → `alembic upgrade head`). A pre-Alembic `players.db` created
-by the old `create_all` path is detected and adopted (new tables/columns added,
-then stamped) without data loss.
+Schema is managed by **Alembic**; migrations run automatically on startup
+(`run_migrations()` → `alembic upgrade head`).
 
 Create a new migration after changing models:
 
@@ -89,17 +102,20 @@ pytest -q          # full suite
 ruff check .       # lint
 ```
 
-Tests run against an in-memory SQLite database and cover schemas, repositories,
-services, the one-active-application constraint, i18n, and the throttle.
+Tests run against an in-memory SQLite database (a dev-only convenience) and cover
+schemas, repositories, services, the one-active-application constraint, the
+CAPTCHA/queue-cap/link-ban gates, the /review flow, i18n, and the throttle.
 
 ## Configuration
 
-| Variable       | Default                              | Purpose                          |
-|----------------|--------------------------------------|----------------------------------|
-| `BOT_TOKEN`    | —                                    | Telegram bot token (required)    |
-| `ADMIN_IDS`    | —                                    | Comma-separated admin Telegram IDs |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./players.db`   | SQLAlchemy async URL             |
-| `REDIS_URL`    | —                                    | Redis for FSM storage            |
-| `FSM_STORAGE`  | `redis`                              | `redis` or `memory`              |
-| `LOG_LEVEL`    | `INFO`                               | Logging level                    |
-| `LOG_JSON`     | `false`                              | JSON structured logs             |
+| Variable       | Default                                              | Purpose                              |
+|----------------|------------------------------------------------------|--------------------------------------|
+| `BOT_TOKEN`    | —                                                    | Telegram bot token (required)        |
+| `ADMIN_IDS`    | —                                                    | Comma-separated admin Telegram IDs   |
+| `GROUP_CHAT_ID`| —                                                    | Gated group id (for invite links)    |
+| `PENDING_CAP`  | `300`                                                | Max applications in the review queue |
+| `DATABASE_URL` | `postgresql+asyncpg://gamejam:gamejam@localhost/...` | SQLAlchemy async URL (PostgreSQL)    |
+| `REDIS_URL`    | —                                                    | Redis for FSM storage                |
+| `FSM_STORAGE`  | `redis`                                              | `redis` or `memory`                  |
+| `LOG_LEVEL`    | `INFO`                                               | Logging level                        |
+| `LOG_JSON`     | `false`                                              | JSON structured logs                 |

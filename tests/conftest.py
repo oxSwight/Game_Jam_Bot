@@ -57,6 +57,9 @@ def make_payload(
     telegram_id: int = 1001,
     nickname: str = "Tester",
     email: str = "tester@example.com",
+    category_id: str = "programming",
+    category_title: str = "Programming / Engineering",
+    roles: list[str] | None = None,
 ):
     """Build a valid RegistrationCreate the way the FSM would."""
     from app.schemas.registration import RegistrationCreate
@@ -65,9 +68,9 @@ def make_payload(
         data={
             "nickname": nickname,
             "email": email,
-            "category_id": "programming",
-            "category_title": "Programming / Engineering",
-            "roles": ["programmer", "gameplay"],
+            "category_id": category_id,
+            "category_title": category_title,
+            "roles": roles if roles is not None else ["programmer", "gameplay"],
             "experience_level": "beginner",
             "engine": ["Unity"],
             "engine_other": None,

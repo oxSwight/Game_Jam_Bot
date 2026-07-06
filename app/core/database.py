@@ -37,7 +37,8 @@ async_session_maker: async_sessionmaker[AsyncSession] = async_sessionmaker(
 
 async def init_db() -> None:
     # Import the models package for its side effect: registering every mapped
-    # class on Base.metadata so create_all sees the full schema.
+    # class on Base.metadata so create_all sees the full schema. Used by the test
+    # fixtures; production goes through Alembic (run_migrations).
     import app.models  # noqa: F401
 
     async with engine.begin() as conn:
@@ -52,72 +53,23 @@ def _alembic_config():
     return cfg
 
 
-async def _bootstrap_legacy_schema() -> bool:
-    """Handle databases created by the pre-Alembic ``create_all`` path.
-
-    If app tables already exist but there is no ``alembic_version`` table, this
-    is a legacy DB. We create any tables added since (events, teams), add the
-    ``applications.team_id`` column if missing, then let the caller stamp it to
-    head — preserving existing rows instead of failing on 'table already exists'.
-    Returns True when a legacy DB was adopted (so the caller stamps instead of
-    upgrading), False for a fresh database that should migrate normally.
-    """
-    from sqlalchemy import inspect
-
-    import app.models  # noqa: F401
-
-    def _inspect(sync_conn):
-        insp = inspect(sync_conn)
-        tables = set(insp.get_table_names())
-        cols = (
-            {c["name"] for c in insp.get_columns("applications")}
-            if "applications" in tables
-            else set()
-        )
-        return tables, cols
-
-    async with engine.begin() as conn:
-        tables, app_cols = await conn.run_sync(_inspect)
-
-        if "alembic_version" in tables or "users" not in tables:
-            # Already versioned, or a fresh DB — nothing legacy to adopt.
-            return False
-
-        logger.warning("legacy (un-versioned) database detected — adopting into Alembic")
-        # create_all is checkfirst by default: only missing tables are created.
-        await conn.run_sync(Base.metadata.create_all)
-        if "team_id" not in app_cols:
-            from sqlalchemy import text
-
-            await conn.execute(
-                text("ALTER TABLE applications ADD COLUMN team_id INTEGER")
-            )
-    return True
-
-
-def _run_alembic(command_name: str) -> None:
-    """Run an Alembic command synchronously. Must be called off the event loop:
-    env.py drives the async engine via asyncio.run, which can't nest inside an
-    already-running loop. Signals env.py to leave our logging config alone."""
+def _run_alembic_upgrade() -> None:
+    """Run ``alembic upgrade head`` synchronously. Must be called off the event
+    loop: env.py drives the async engine via asyncio.run, which can't nest inside
+    an already-running loop. Signals env.py to leave our logging config alone."""
     from alembic import command
 
     os.environ["ALEMBIC_SKIP_LOGGING_CONFIG"] = "1"
     try:
-        cfg = _alembic_config()
-        getattr(command, command_name)(cfg, "head")
+        command.upgrade(_alembic_config(), "head")
     finally:
         os.environ.pop("ALEMBIC_SKIP_LOGGING_CONFIG", None)
 
 
 async def run_migrations() -> None:
-    """Bring the database schema up to date on startup."""
-    adopted = await _bootstrap_legacy_schema()
-    if adopted:
-        logger.info("stamping adopted legacy database to head")
-        await asyncio.to_thread(_run_alembic, "stamp")
-        return
+    """Bring the PostgreSQL schema up to date on startup."""
     logger.info("running database migrations (alembic upgrade head)")
-    await asyncio.to_thread(_run_alembic, "upgrade")
+    await asyncio.to_thread(_run_alembic_upgrade)
     logger.info("database migrations up to date")
 
 

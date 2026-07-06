@@ -19,11 +19,23 @@ class Settings(BaseSettings):
     # NoDecode: stop pydantic-settings from JSON-decoding this env var before our
     # validator runs. Without it, a single id like "717098190" is valid JSON and
     # gets decoded to an int, which our before-validator then turns into [] —
-    # silently disabling all admin notifications. See parse_admin_ids below.
+    # silently disabling all admin access. See parse_admin_ids below.
     admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list, alias="ADMIN_IDS")
 
+    # The private/closed group the bot gates access to. On approval the bot mints a
+    # single-use invite link into this chat. Optional so the bot can still boot for
+    # local/testing, but approvals fail loudly (and are logged) until it is set.
+    group_chat_id: int | None = Field(default=None, alias="GROUP_CHAT_ID")
+
+    # Anti-spam: hard ceiling on applications sitting in pending_review. Once the
+    # queue is full, /register is refused until admins drain it. Protects the DB
+    # and admin workflow from a flood of bogus sign-ups.
+    pending_cap: int = Field(default=300, alias="PENDING_CAP")
+
+    # PostgreSQL is the production database. SQLite is only used by the test suite
+    # (in-memory), so it is never the default here.
     database_url: str = Field(
-        default="sqlite+aiosqlite:///./players.db",
+        default="postgresql+asyncpg://gamejam:gamejam@localhost:5432/gamejam",
         alias="DATABASE_URL",
     )
     redis_url: str | None = Field(default=None, alias="REDIS_URL")

@@ -1,6 +1,6 @@
-"""Handler happy/error coverage for the FSM- and callback-driven commands
-(/history, /broadcast, /edit, /language, events/teams). Drives handlers with a
-real FSMContext (MemoryStorage) and fake Message/CallbackQuery objects that
+"""Handler happy/error coverage for the FSM- and callback-driven flows
+(captcha, /review, /broadcast, /edit, /language, url-reset). Drives handlers with
+a real FSMContext (MemoryStorage) and fake Message/CallbackQuery objects that
 record what the bot would send."""
 
 from types import SimpleNamespace
@@ -37,6 +37,12 @@ class FakeMessage:
     async def edit_text(self, text, **kw):
         self.answers.append(text)
 
+    async def edit_reply_markup(self, **kw):
+        pass
+
+    async def delete(self):
+        pass
+
 
 class FakeCallback:
     def __init__(self, data: str, user_id: int = 111):
@@ -52,10 +58,19 @@ class FakeCallback:
 class FakeNotifications:
     def __init__(self):
         self.sent: list = []
+        self.approved: list = []
+        self.rejected: list = []
 
     async def broadcast(self, recipients, text):
         self.sent.append((list(recipients), text))
         return (len(recipients), 0)
+
+    async def send_approval_with_invite(self, telegram_id, nickname, lang="ru"):
+        self.approved.append((telegram_id, nickname, lang))
+        return True
+
+    async def notify_user_rejected(self, telegram_id, reason=None, lang="ru"):
+        self.rejected.append((telegram_id, reason, lang))
 
 
 async def _submit(services, session, **kw):
@@ -64,24 +79,124 @@ async def _submit(services, session, **kw):
     return read
 
 
-# ------------------------------ /history ------------------------------ #
-async def test_history_happy(services, session):
-    app = await _submit(services, session)
-    msg = FakeMessage(f"/history {app.id[:8]}")
-    await admin_h.cmd_history(msg, services)
-    assert "История" in msg.answers[0]
+# ------------------------------ captcha ------------------------------ #
+async def test_register_opens_captcha_gate(services):
+    state = make_state(111)
+    await reg_h.cmd_register(FakeMessage("/register", user_id=111), state, services)
+    assert await state.get_state() == reg_h.RegistrationStates.captcha.state
+    assert "captcha_answer" in await state.get_data()
 
 
-async def test_history_missing_arg(services):
-    msg = FakeMessage("/history")
-    await admin_h.cmd_history(msg, services)
-    assert "Использование" in msg.answers[0]
+async def test_captcha_correct_advances_to_consent(services):
+    state = make_state(111)
+    await reg_h.cmd_register(FakeMessage("/register", user_id=111), state, services)
+    target = (await state.get_data())["captcha_answer"]
+    await reg_h.process_captcha(FakeCallback(f"cap:{target}", 111), state)
+    assert await state.get_state() == reg_h.RegistrationStates.consent.state
 
 
-async def test_history_not_found(services):
-    msg = FakeMessage("/history deadbeef")
-    await admin_h.cmd_history(msg, services)
-    assert "не найдена" in msg.answers[0].lower()
+async def test_captcha_wrong_cancels_registration(services):
+    state = make_state(111)
+    await reg_h.cmd_register(FakeMessage("/register", user_id=111), state, services)
+    target = (await state.get_data())["captcha_answer"]
+    wrong = (target + 1) % 5
+    cb = FakeCallback(f"cap:{wrong}", 111)
+    await reg_h.process_captcha(cb, state)
+    assert await state.get_state() is None
+    assert any("не пройдена" in (a or "").lower() for a in cb.message.answers)
+
+
+async def test_register_blocked_when_queue_full(services, session, monkeypatch):
+    # Cap the queue at 1 and fill it, then a new /register must be refused.
+    from app.core import config as cfg
+
+    await _submit(services, session, telegram_id=900, nickname="Filler", email="f@x.com")
+    monkeypatch.setattr(cfg.get_settings(), "pending_cap", 1, raising=False)
+
+    state = make_state(222)
+    msg = FakeMessage("/register", user_id=222)
+    await reg_h.cmd_register(msg, state, services)
+    assert await state.get_state() is None
+    assert "переполнена" in msg.answers[0].lower()
+
+
+# ------------------------------ url reset ------------------------------ #
+async def test_url_in_nickname_resets_flow(services):
+    state = make_state(111)
+    await state.set_state(reg_h.RegistrationStates.nickname)
+    msg = FakeMessage("visit http://evil.example", user_id=111)
+    await reg_h.process_nickname(msg, state, services)
+    assert await state.get_state() is None
+    assert "ссылки" in msg.answers[0].lower()
+
+
+async def test_plain_email_is_not_treated_as_url(services):
+    # Regression: an @-domain email must not be misread as a link.
+    state = make_state(111)
+    await state.update_data(nickname="Neo")
+    await state.set_state(reg_h.RegistrationStates.email)
+    msg = FakeMessage("neo@example.com", user_id=111)
+    await reg_h.process_email(msg, state, services)
+    assert await state.get_state() == reg_h.RegistrationStates.category.state
+
+
+# ------------------------------ /review ------------------------------ #
+async def test_review_shows_first_pending(services, session):
+    await _submit(services, session, telegram_id=501, nickname="P1", email="p1@x.com")
+    msg = FakeMessage("/review", user_id=111)
+    await admin_h.cmd_review(msg, services)
+    assert "Очередь" in msg.answers[0]
+    assert "P1" in msg.answers[0]
+
+
+async def test_review_empty_queue(services):
+    msg = FakeMessage("/review", user_id=111)
+    await admin_h.cmd_review(msg, services)
+    assert "пуст" in msg.answers[0].lower()
+
+
+async def test_review_approve_mints_invite_and_swipes(services, session):
+    a = await _submit(services, session, telegram_id=501, nickname="P1", email="p1@x.com")
+    await _submit(services, session, telegram_id=502, nickname="P2", email="p2@x.com")
+    services.notifications = FakeNotifications()
+
+    cb = FakeCallback(f"rev:approve:{a.id[:8]}", user_id=111)
+    await admin_h.cb_review_decision(cb, services)
+
+    # approved + single-use invite requested for that user
+    assert services.notifications.approved
+    assert services.notifications.approved[0][1] == "P1"
+    reloaded = await services.applications.find_by_prefix(a.id[:8])
+    assert reloaded.status == ApplicationStatus.APPROVED
+    # card was edited in place to the next pending application (P2)
+    assert any("P2" in a for a in cb.message.answers)
+
+
+async def test_review_reject_notifies_user(services, session):
+    a = await _submit(services, session, telegram_id=501, nickname="P1", email="p1@x.com")
+    services.notifications = FakeNotifications()
+
+    cb = FakeCallback(f"rev:reject:{a.id[:8]}", user_id=111)
+    await admin_h.cb_review_decision(cb, services)
+
+    assert services.notifications.rejected
+    reloaded = await services.applications.find_by_prefix(a.id[:8])
+    assert reloaded.status == ApplicationStatus.REJECTED
+    # queue now empty → card shows the empty state
+    assert any("пуст" in a.lower() for a in cb.message.answers)
+
+
+async def test_review_already_handled_advances(services, session):
+    a = await _submit(services, session, telegram_id=501, nickname="P1", email="p1@x.com")
+    await services.applications.update_status(a.id, ApplicationStatus.APPROVED)
+    await session.commit()
+    services.notifications = FakeNotifications()
+
+    cb = FakeCallback(f"rev:approve:{a.id[:8]}", user_id=111)
+    await admin_h.cb_review_decision(cb, services)
+    # not re-approved; no invite minted
+    assert not services.notifications.approved
+    assert any("уже обработана" in (t or "").lower() for t in cb.answered)
 
 
 # ------------------------------ /broadcast ------------------------------ #
@@ -105,11 +220,20 @@ async def test_broadcast_happy_flow(services, session):
     cb = FakeCallback("bcast:send")
     await admin_extra.broadcast_send(cb, state, services)
 
-    assert services.notifications.sent  # a send happened
+    assert services.notifications.sent
     recipients, text = services.notifications.sent[0]
     assert text == "Hello players"
     assert len(recipients) == 1
     assert await state.get_state() is None
+
+
+async def test_broadcast_compose_ignores_slash_command():
+    state = make_state()
+    await state.set_state(admin_extra.AdminStates.broadcast_message)
+    msg = FakeMessage("/stats")
+    await admin_extra.broadcast_compose(msg, state)
+    assert "команда" in msg.answers[0].lower()
+    assert await state.get_state() == admin_extra.AdminStates.broadcast_message.state
 
 
 # ------------------------------ /edit ------------------------------ #
@@ -139,7 +263,6 @@ async def test_edit_nickname_invalid(services, session):
     await reg_h.edit_pick_nickname(FakeCallback("edit:nickname", 111), state)
     msg = FakeMessage("x", user_id=111)  # too short
     await reg_h.edit_apply_nickname(msg, state, services)
-    # validation error surfaced, nickname unchanged
     assert (await services.users.get_profile(111)).nickname == "Original"
 
 
@@ -152,81 +275,14 @@ async def test_language_set(services, session):
     assert user.language == "en"
 
 
-# ------------------------------ events/teams ------------------------------ #
-async def test_events_list(services, session):
-    await services.events.create_event("Jam One")
-    await session.commit()
-    msg = FakeMessage("/events")
-    await admin_extra.cmd_events(msg, services)
-    assert "Jam One" in msg.answers[0]
-
-
-async def test_event_activate_and_teams(services, session):
-    ev = await services.events.create_event("Jam")
-    await session.commit()
-    # activate
-    await admin_extra.cmd_event_activate(FakeMessage(f"/event_activate {ev.id}"), services)
-    # create a team
-    await admin_extra.cmd_team_new(FakeMessage(f"/team_new {ev.id} Red"), services)
-    msg = FakeMessage("/teams")  # no arg → falls back to active event
-    await admin_extra.cmd_teams(msg, services)
-    assert "Red" in msg.answers[0]
-
-
-async def test_team_new_missing_arg(services):
-    msg = FakeMessage("/team_new")
-    await admin_extra.cmd_team_new(msg, services)
-    assert "Использование" in msg.answers[0]
-
-
-async def test_autoteams_without_teams_errors(services, session):
-    ev = await services.events.create_event("Jam")
-    await session.commit()
-    msg = FakeMessage(f"/autoteams {ev.id}")
-    await admin_extra.cmd_autoteams(msg, services)
-    assert "команд" in msg.answers[0].lower()
-
-
 # --------------- free-text FSM guards & cancels --------------- #
-async def test_reject_reason_ignores_slash_command(services, session):
-    app = await _submit(services, session)
-    state = make_state()
-    await state.set_state(admin_h.AdminStates.reject_reason)
-    await state.update_data(reject_app_id=app.id)
-    msg = FakeMessage("/queue")
-    await admin_h.process_reject_reason(msg, state, services)
-    # command NOT consumed as a reason; application still pending
-    assert "команда" in msg.answers[0].lower()
-    still = await services.applications.find_by_prefix(app.id[:8])
-    assert still.status == ApplicationStatus.PENDING_REVIEW
-
-
-async def test_reject_reason_cancel(services):
-    state = make_state()
-    await state.set_state(admin_h.AdminStates.reject_reason)
-    msg = FakeMessage("/cancel")
-    await admin_h.cancel_reject_reason(msg, state)
-    assert await state.get_state() is None
-    assert "отменено" in msg.answers[0].lower()
-
-
-async def test_broadcast_compose_ignores_slash_command():
-    state = make_state()
-    await state.set_state(admin_extra.AdminStates.broadcast_message)
-    msg = FakeMessage("/stats")
-    await admin_extra.broadcast_compose(msg, state)
-    assert "команда" in msg.answers[0].lower()
-    # still waiting for real text, not advanced to confirm
-    assert await state.get_state() == admin_extra.AdminStates.broadcast_message.state
-
-
 def test_not_command_filter():
     from app.handlers.registration import not_command
 
     assert not_command(FakeMessage("neo@example.com")) is True
     assert not_command(FakeMessage("Neo")) is True
-    assert not_command(FakeMessage("/events")) is False
-    assert not_command(FakeMessage("/leaderboard")) is False
+    assert not_command(FakeMessage("/register")) is False
+    assert not_command(FakeMessage("/review")) is False
     assert not_command(FakeMessage("")) is True  # non-command empty text
 
 
@@ -237,3 +293,116 @@ async def test_edit_cancel(services, session):
     msg = FakeMessage("/cancel", user_id=111)
     await reg_h.cancel_edit(msg, state)
     assert await state.get_state() is None
+
+
+# --------------- duplicate nickname/email on submit --------------- #
+async def _seed_confirm_state(state, *, nickname, email):
+    """Put the FSM in the confirm step with a full, valid registration payload."""
+    await state.set_state(reg_h.RegistrationStates.confirm)
+    await state.update_data(
+        nickname=nickname,
+        email=email,
+        category_id="programming",
+        category_title="Programming / Engineering",
+        roles=["programmer", "gameplay"],
+        experience_level="beginner",
+        engine=["Unity"],
+        engine_other=None,
+        tools=["Blender"],
+        tools_other=None,
+        motivations=["Learning"],
+        consent=True,
+    )
+
+
+async def test_submit_duplicate_nickname_recovers(services, session):
+    # First player takes the nickname "Alex".
+    await _submit(services, session, telegram_id=111, nickname="Alex", email="alex@x.com")
+
+    # Second player reaches confirm with the SAME (already-taken) nickname.
+    state = make_state(222)
+    await _seed_confirm_state(state, nickname="Alex", email="bob@x.com")
+    cb = FakeCallback("confirm:submit", user_id=222)
+    await reg_h.confirm_submit(cb, state, services)  # must NOT raise
+
+    assert any("занят" in (a or "").lower() for a in cb.answered)
+    assert await state.get_state() == reg_h.RegistrationStates.nickname.state
+    assert await services.users.get_profile(222) is None
+
+    # They re-enter a free nickname, then email — the flow jumps straight back to
+    # confirm (category/roles preserved), and the retried submit now succeeds.
+    await reg_h.process_nickname(FakeMessage("Alex2", user_id=222), state, services)
+    await reg_h.process_email(FakeMessage("bob@x.com", user_id=222), state, services)
+    assert await state.get_state() == reg_h.RegistrationStates.confirm.state
+
+    cb2 = FakeCallback("confirm:submit", user_id=222)
+    await reg_h.confirm_submit(cb2, state, services)
+    profile = await services.users.get_profile(222)
+    assert profile is not None
+    assert profile.nickname == "Alex2"
+    assert await state.get_state() is None
+
+
+# --------------- edit profile: skills & category --------------- #
+async def test_edit_skills_updates_existing_application(services, session):
+    read = await _submit(services, session, telegram_id=111, nickname="Tester", email="t@x.com")
+    original_id = read.id
+
+    state = make_state(111)
+    await reg_h.cmd_edit(FakeMessage("/edit", user_id=111), state, services)
+    await reg_h.edit_pick_skills(FakeCallback("edit:skills", 111), state, services)
+
+    assert await state.get_state() == reg_h.RegistrationStates.category.state
+    data = await state.get_data()
+    assert data.get("edit_mode") is True
+    assert data.get("roles") == ["programmer", "gameplay"]
+    assert data.get("engine") == ["Unity"]
+
+    await reg_h.process_category(FakeCallback("cat:programming", 111), state)
+    assert (await state.get_data()).get("roles") == ["programmer", "gameplay"]
+    await reg_h.toggle_role(FakeCallback("role:backend_other", 111), state)
+    await reg_h.toggle_role(FakeCallback("role:done", 111), state)
+
+    await reg_h.process_experience(FakeCallback("exp:commercial", 111), state)
+    await reg_h.toggle_engine(FakeCallback("engine:done", 111), state)
+    await reg_h.toggle_tool(FakeCallback("tool:done", 111), state)
+    await reg_h.toggle_motivation(FakeCallback("mot:done", 111), state)
+    assert await state.get_state() == reg_h.RegistrationStates.confirm.state
+
+    await reg_h.confirm_submit(FakeCallback("confirm:submit", 111), state, services)
+    assert await state.get_state() is None
+
+    profile = await services.users.get_profile(111)
+    assert profile.id == original_id                  # same row, not a new application
+    assert profile.experience_level == "commercial"   # changed
+    assert "Backend" in profile.subcategories         # added role
+    assert "Programmer" in profile.subcategories      # kept
+    assert profile.engine == ["Unity"]                # preserved through the walk
+
+
+async def test_update_profile_service_preserves_status(services, session):
+    read = await _submit(services, session, telegram_id=111, nickname="Tester", email="t@x.com")
+    await services.applications.update_status(read.id, ApplicationStatus.APPROVED)
+    await session.commit()
+
+    payload = make_payload(telegram_id=111, nickname="Tester", email="t@x.com")
+    ok = await services.applications.update_profile(111, payload)
+    await session.commit()
+    assert ok is True
+
+    profile = await services.users.get_profile(111)
+    assert profile.id == read.id
+    assert profile.status == "approved"  # editing skills doesn't reset the decision
+
+
+async def test_update_profile_no_active_application(services):
+    payload = make_payload(telegram_id=404)
+    assert await services.applications.update_profile(404, payload) is False
+
+
+async def test_engine_other_rejects_overlong_text():
+    state = make_state()
+    await state.set_state(reg_h.RegistrationStates.engine_other)
+    await reg_h.process_engine_other(FakeMessage("x" * 200), state)
+    assert (await state.get_data()).get("engine_other") is None
+    assert await state.get_state() == reg_h.RegistrationStates.engine_other.state

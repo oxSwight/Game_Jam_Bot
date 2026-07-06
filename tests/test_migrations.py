@@ -41,7 +41,7 @@ def test_upgrade_then_downgrade(tmp_path):
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
     con.close()
-    assert {"users", "applications", "events", "teams", "logs"} <= tables
+    assert {"users", "applications", "logs"} <= tables
 
     down = _alembic(["downgrade", "base"], db_url)
     assert down.returncode == 0, down.stderr
@@ -52,4 +52,4 @@ def test_upgrade_then_downgrade(tmp_path):
     )}
     con.close()
     # every app table dropped by downgrade (alembic_version may remain)
-    assert not ({"users", "applications", "events", "teams", "logs"} & tables_after)
+    assert not ({"users", "applications", "logs"} & tables_after)

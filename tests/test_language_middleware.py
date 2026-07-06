@@ -32,9 +32,24 @@ async def test_falls_back_to_client_language(services):
     assert await _run(services, user) == "en"
 
 
-async def test_unsupported_client_language_defaults(services):
-    user = SimpleNamespace(id=888, language_code="fr")
-    assert await _run(services, user) == "ru"
+async def test_regional_english_variant_is_english(services):
+    # 'en-US' must resolve to English, not fall through to the default.
+    user = SimpleNamespace(id=771, language_code="en-US")
+    assert await _run(services, user) == "en"
+
+
+async def test_non_cis_language_defaults_to_english(services):
+    # Non-CIS locale → English (the region-aware default).
+    for code in ("fr", "de", "es", "pt-BR"):
+        user = SimpleNamespace(id=888, language_code=code)
+        assert await _run(services, user) == "en", code
+
+
+async def test_cis_language_defaults_to_russian(services):
+    # Other CIS locales the bot has no UI for → Russian default.
+    for code in ("uk", "kk", "hy", "be"):
+        user = SimpleNamespace(id=889, language_code=code)
+        assert await _run(services, user) == "ru", code
 
 
 async def test_no_user_defaults(services):

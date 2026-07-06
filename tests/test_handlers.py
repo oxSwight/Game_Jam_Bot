@@ -60,47 +60,16 @@ async def test_cmd_export_produces_csv(services, session):
     assert document.filename == "applications.csv"
 
 
-# --------------------------- /leaderboard --------------------------- #
-async def test_cmd_leaderboard_empty(services):
-    msg = FakeMessage("/leaderboard")
-    await admin_extra.cmd_leaderboard(msg, services)
-    assert "пуст" in msg.answers[0].lower()
-
-
-async def test_cmd_leaderboard_ranks(services, session):
-    await _submit_approved(services, session, 1)
-    app = (await services.applications.list_approved())[0]
-    await services.applications.set_layer_score(app.id, 1, 42.0)
+async def test_cmd_export_neutralises_formula_injection(services, session):
+    # A nickname that is a spreadsheet formula must not stay live in the export.
+    await services.applications.submit_registration(
+        make_payload(telegram_id=700, nickname="=1+1", email="evil@x.com")
+    )
     await session.commit()
-    msg = FakeMessage("/leaderboard")
-    await admin_extra.cmd_leaderboard(msg, services)
-    assert "42" in msg.answers[0]
 
+    msg = FakeMessage("/export")
+    await admin_extra.cmd_export(msg, services)
+    csv_text = msg.documents[0][0].data.decode("utf-8")
 
-# ------------------------------ events ------------------------------ #
-async def test_cmd_event_new_happy(services):
-    msg = FakeMessage("/event_new Summer Jam")
-    await admin_extra.cmd_event_new(msg, services)
-    assert "создано" in msg.answers[0].lower()
-    events = await services.events.list_events()
-    assert events[0].name == "Summer Jam"
-
-
-async def test_cmd_event_new_missing_arg(services):
-    msg = FakeMessage("/event_new")
-    await admin_extra.cmd_event_new(msg, services)
-    assert "Использование" in msg.answers[0]
-
-
-async def test_cmd_event_new_duplicate(services, session):
-    await services.events.create_event("Dup")
-    await session.commit()
-    msg = FakeMessage("/event_new Dup")
-    await admin_extra.cmd_event_new(msg, services)
-    assert "уже существует" in msg.answers[0].lower()
-
-
-async def test_cmd_teams_no_active_event(services):
-    msg = FakeMessage("/teams")
-    await admin_extra.cmd_teams(msg, services)
-    assert "нет активного" in msg.answers[0].lower()
+    assert "'=1+1" in csv_text            # neutralised: leading quote → inert text
+    assert ",=1+1" not in csv_text        # the bare formula must not appear as a cell

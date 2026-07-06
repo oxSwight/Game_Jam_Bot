@@ -16,7 +16,8 @@ def test_catalog_complete():
 
 
 def test_t_formats_and_falls_back():
-    assert "Neo" in t("notify_approved", "en", nickname="Neo")
+    # the approval message carries the personal invite link
+    assert "JOIN-LINK" in t("notify_approved", "en", nickname="Neo", link="JOIN-LINK")
     # unknown lang → default
     assert t("welcome", "zz") == t("welcome", DEFAULT_LANG)
     # unknown key → returns the key itself, never crashes
