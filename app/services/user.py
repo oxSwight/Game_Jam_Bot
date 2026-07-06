@@ -21,6 +21,16 @@ class UserService(BaseService):
         await self.session.flush()
         return user
 
+    async def set_active(self, telegram_id: int, active: bool) -> User | None:
+        """Flip a known player's group-membership flag. Returns None (no-op) for an
+        unknown telegram_id — we don't create rows for random group joiners."""
+        user = await self.users.get_by_telegram_id(telegram_id)
+        if user is None:
+            return None
+        user.is_active = active
+        await self.session.flush()
+        return user
+
     async def get_profile(self, telegram_id: int) -> ApplicationRead | None:
         user = await self.users.get_by_telegram_id(telegram_id)
         if not user:
@@ -34,9 +44,13 @@ class UserService(BaseService):
     def _to_read(user: User, application: Application) -> ApplicationRead:
         return ApplicationRead(
             id=application.id,
+            player_code=application.player_code,
             status=application.status.value,
-            nickname=user.nickname,
-            email=user.email,
+            is_active=user.is_active,
+            # Prefer the per-application snapshot; fall back to the user for rows
+            # that predate the snapshot columns.
+            nickname=application.nickname or user.nickname,
+            email=application.email or user.email,
             main_category=application.main_category,
             skill_category_title=application.skill_category_title,
             subcategories=application.subcategories,

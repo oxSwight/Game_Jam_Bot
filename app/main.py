@@ -20,6 +20,7 @@ from app.core.logging import setup_logging
 from app.core.redis import create_fsm_storage, create_redis
 from app.handlers.admin import router as admin_router
 from app.handlers.admin_extra import router as admin_extra_router
+from app.handlers.membership import router as membership_router
 from app.handlers.registration import router as registration_router
 from app.middlewares import (
     AdminMiddleware,
@@ -35,25 +36,17 @@ logger = logging.getLogger(__name__)
 USER_COMMANDS = [
     BotCommand(command="register", description="Подать заявку"),
     BotCommand(command="status", description="Статус вашей заявки"),
-    BotCommand(command="edit", description="Изменить ник/email"),
+    BotCommand(command="edit", description="Изменить ник/email/навыки"),
     BotCommand(command="withdraw", description="Удалить заявку и подать заново"),
     BotCommand(command="language", description="Язык / Language"),
-    BotCommand(command="whoami", description="Ваш ID и роль"),
     BotCommand(command="help", description="Список команд"),
 ]
 
 ADMIN_COMMANDS = USER_COMMANDS + [
-    BotCommand(command="queue", description="👑 Очередь заявок"),
-    BotCommand(command="pending", description="👑 Сколько заявок на проверке"),
-    BotCommand(command="approve", description="👑 Одобрить заявку"),
-    BotCommand(command="reject", description="👑 Отклонить заявку"),
-    BotCommand(command="delete", description="👑 Удалить заявку"),
-    BotCommand(command="stats", description="👑 Статистика"),
-    BotCommand(command="export", description="👑 Экспорт CSV"),
-    BotCommand(command="broadcast", description="👑 Рассылка одобренным"),
-    BotCommand(command="leaderboard", description="👑 Лидерборд"),
-    BotCommand(command="events", description="👑 События"),
-    BotCommand(command="teams", description="👑 Команды события"),
+    BotCommand(command="review", description="Очередь заявок"),
+    BotCommand(command="stats", description="Статистика"),
+    BotCommand(command="export", description="Экспорт CSV"),
+    BotCommand(command="broadcast", description="Рассылка одобренным"),
 ]
 
 
@@ -118,6 +111,7 @@ async def main() -> None:
     dp.include_router(registration_router)
     dp.include_router(admin_router)
     dp.include_router(admin_extra_router)
+    dp.include_router(membership_router)
 
     @dp.error()
     async def global_error_handler(event: ErrorEvent) -> None:
@@ -125,6 +119,17 @@ async def main() -> None:
             "Unhandled exception while processing update",
             exc_info=event.exception,
         )
+        # If the failing update was a button press, the client is stuck showing a
+        # loading spinner until Telegram times it out. Clear it and surface a
+        # generic error so the user knows to retry rather than staring at a hang.
+        callback = event.update.callback_query
+        if callback is not None:
+            try:
+                await callback.answer(
+                    "Что-то пошло не так. Попробуйте ещё раз.", show_alert=True
+                )
+            except Exception:
+                logger.debug("could not answer callback after error", exc_info=True)
 
     await bot.delete_webhook(drop_pending_updates=True)
     await _setup_commands(bot, settings.admin_ids)
@@ -133,7 +138,9 @@ async def main() -> None:
         extra={"extra_fields": {"log_json": settings.log_json, "admin_ids": settings.admin_ids}},
     )
     try:
-        await dp.start_polling(bot)
+        # resolve_used_update_types() makes Telegram deliver chat_member updates
+        # (needed by the membership handler) — they're excluded from the default set.
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         if redis is not None:
             await redis.aclose()
