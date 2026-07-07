@@ -1,11 +1,12 @@
 import asyncio
 import logging
+import time
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 
 from app.core.config import get_settings
-from app.core.i18n import t
+from app.core.i18n import DEFAULT_LANG, t
 from app.data.catalog import EXPERIENCE_LEVELS
 from app.schemas.registration import ApplicationRead
 from app.utils.html import join_with_other, safe
@@ -37,20 +38,52 @@ class NotificationService:
     """Telegram-side notifications and invite-link minting — keeps handlers free
     of message formatting and Bot-API calls."""
 
-    def __init__(self, bot: Bot) -> None:
+    def __init__(self, bot: Bot, admin_ping_window: float = 30.0) -> None:
         self.bot = bot
         self.settings = get_settings()
+        # Debounce for the per-application admin ping: at most one push per this
+        # many seconds, so a burst of sign-ups can't spam admins (or trip
+        # Telegram's flood limits). The queue count in each ping stays fresh, so a
+        # skipped ping loses no information — the next one shows the current total.
+        self._admin_ping_window = admin_ping_window
+        self._last_admin_ping: float | None = None
+
+    async def notify_admins_new_application(
+        self, nickname: str, category: str, pending_count: int
+    ) -> None:
+        """Ping every configured admin that a new application landed in the queue.
+        Best-effort and debounced; no-op when ADMIN_IDS is empty."""
+        admin_ids = self.settings.admin_ids
+        if not admin_ids:
+            return
+        now = time.monotonic()
+        if self._last_admin_ping is not None and now - self._last_admin_ping < self._admin_ping_window:
+            return
+        self._last_admin_ping = now
+        text = t(
+            "admin_new_application",
+            DEFAULT_LANG,
+            nickname=safe(nickname) or "—",
+            category=safe(category),
+            count=pending_count,
+        )
+        for admin_id in admin_ids:
+            await self._safe_send(admin_id, text)
 
     # ------------------------------------------------------------------ #
-    # Gateway: mint a single-use invite and hand it to the approved user
+    # Gateway: mint a join-request invite and hand it to the approved user
     # ------------------------------------------------------------------ #
     async def send_approval_with_invite(
         self, telegram_id: int, nickname: str, lang: str = "ru"
     ) -> bool:
-        """Mint a one-join invite link into the gated group and DM it to the
+        """Mint a join-request invite link into the gated group and DM it to the
         approved applicant. Returns True if a link was successfully delivered,
         False if we had to fall back to a link-less approval notice."""
-        link = await self._create_single_use_invite(nickname)
+        # A banned user can't use ANY invite link — Telegram shows it as "expired"
+        # (Истекшая ссылка). If this applicant was previously removed/kicked,
+        # clear the ban first so their fresh link actually works. Best-effort.
+        await self._unban_if_banned(telegram_id)
+        link = await self._create_join_request_invite(nickname)
         if link is None:
             await self._safe_send(telegram_id, t("notify_approved_no_link", lang))
             return False
@@ -61,30 +94,64 @@ class NotificationService:
         )
         return True
 
-    async def _create_single_use_invite(self, nickname: str) -> str | None:
-        """Create an invite link limited to a single join (member_limit=1). Returns
-        the URL, or None if the group isn't configured or the API call fails."""
+    async def _unban_if_banned(self, telegram_id: int) -> None:
+        """Lift a prior ban on the applicant so an approval can actually let them
+        in. ``only_if_banned`` makes it a no-op for anyone not currently banned,
+        so it never accidentally 'unkicks' by adding them to the group."""
+        if not self.settings.group_chat_id:
+            return
+        try:
+            await self.bot.unban_chat_member(
+                chat_id=self.settings.group_chat_id,
+                user_id=telegram_id,
+                only_if_banned=True,
+            )
+        except Exception:
+            # Missing can_restrict_members, or a transient API error — the invite
+            # is still worth sending; a genuinely-banned user just won't get in.
+            logger.warning(
+                "could not clear a possible ban before inviting user", exc_info=True
+            )
+
+    async def _create_join_request_invite(self, nickname: str) -> str | None:
+        """Create an invite link that raises a join REQUEST instead of letting the
+        holder straight in (creates_join_request=True — Telegram forbids combining
+        it with member_limit). The chat_join_request handler then approves only
+        users whose application is APPROVED, so a leaked/forwarded link admits
+        nobody else — identity is checked at the door, not by possession of a URL.
+        Returns the URL, or None if the group isn't configured or the call fails."""
         if not self.settings.group_chat_id:
             logger.error(
                 "GROUP_CHAT_ID is not configured — cannot mint an invite link"
             )
             return None
-        try:
-            # name is an admin-facing label (max 32 chars), not shown to the user.
-            name = f"gj-{nickname}"[:32]
-            result = await self.bot.create_chat_invite_link(
-                chat_id=self.settings.group_chat_id,
-                member_limit=1,
-                name=name,
-            )
-            return result.invite_link
-        except Exception:
-            logger.warning(
-                "failed to create single-use invite link (group_chat_id=%s)",
-                self.settings.group_chat_id,
-                exc_info=True,
-            )
-            return None
+        # name is an admin-facing label (max 32 chars), not shown to the user.
+        name = f"gj-{nickname}"[:32]
+        for attempt in (1, 2):
+            try:
+                result = await self.bot.create_chat_invite_link(
+                    chat_id=self.settings.group_chat_id,
+                    creates_join_request=True,
+                    name=name,
+                )
+                return result.invite_link
+            except TelegramRetryAfter as exc:
+                if attempt == 2:
+                    logger.warning(
+                        "invite link mint still rate-limited after retry "
+                        "(group_chat_id=%s)",
+                        self.settings.group_chat_id,
+                    )
+                    return None
+                await asyncio.sleep(exc.retry_after + 1)
+            except Exception:
+                logger.warning(
+                    "failed to create invite link (group_chat_id=%s)",
+                    self.settings.group_chat_id,
+                    exc_info=True,
+                )
+                return None
+        return None
 
     async def notify_welcome_back(
         self, telegram_id: int, nickname: str, lang: str = "ru"

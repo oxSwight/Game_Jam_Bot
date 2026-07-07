@@ -10,6 +10,9 @@ class UserService(BaseService):
     async def get_by_telegram_id(self, telegram_id: int) -> User | None:
         return await self.users.get_by_telegram_id(telegram_id)
 
+    async def get_by_username(self, username: str) -> User | None:
+        return await self.users.get_by_username(username)
+
     async def get_language(self, telegram_id: int) -> str | None:
         return await self.users.get_language(telegram_id)
 

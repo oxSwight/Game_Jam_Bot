@@ -2,20 +2,21 @@ import logging
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
-from app.core.i18n import t
+from app.core.i18n import normalize_lang, t
 from app.data.captcha import build_captcha
 from app.data.catalog import (
     CATEGORY_BY_ID,
-    CONSENT_ITEMS,
     EXPERIENCE_LEVELS,
     MAIN_CATEGORIES,
+    NO_EXPERIENCE_OPTION,
+    PRIVACY_VERSION,
     role_ids_from_titles,
     role_titles,
 )
@@ -36,7 +37,7 @@ from app.keyboards.registration import (
 )
 from app.schemas.registration import EmailStep, NicknameStep, RegistrationCreate
 from app.services import ServiceContainer
-from app.services.application import ActiveApplicationExistsError
+from app.services.application import ActiveApplicationExistsError, QueueFullError
 from app.states.admin import EditStates
 from app.states.registration import RegistrationStates
 from app.utils.html import join_with_other, safe
@@ -76,14 +77,12 @@ def _status_label(status: str, lang: str) -> str:
     } else status
 
 
-def _consent_text() -> str:
-    items = "\n".join(f"• {item}" for item in CONSENT_ITEMS)
-    return (
-        "<b>Регистрация в игровую группу</b>\n\n"
-        "Перед началом подтвердите, что вы:\n"
-        f"{items}\n\n"
-        "Нажмите кнопку ниже, чтобы продолжить."
-    )
+def _consent_text(lang: str) -> str:
+    """The single consent message: a compact rules + privacy policy document
+    (what is stored, why, for how long, how to erase via /withdraw). Accepting it
+    is the legal basis for processing the applicant's data; the accepted version
+    is recorded in the application's audit log."""
+    return t("consent_text", lang, version=PRIVACY_VERSION)
 
 
 def _build_summary(data: dict) -> str:
@@ -205,7 +204,9 @@ async def process_captcha(
 
     await state.set_state(RegistrationStates.consent)
     await state.update_data(captcha_answer=None)
-    await callback.message.edit_text(_consent_text(), reply_markup=consent_keyboard())
+    await callback.message.edit_text(
+        _consent_text(lang), reply_markup=consent_keyboard(lang)
+    )
     await callback.answer()
 
 
@@ -250,13 +251,100 @@ async def cmd_withdraw(
     services: ServiceContainer,
     lang: str = "ru",
 ) -> None:
-    """Self-service: delete your own active application so you can register anew."""
+    """Self-service right to erasure: irreversibly deletes EVERYTHING stored
+    about the caller — user row (nickname, email, username, language) and all
+    applications including rejected ones, with their audit logs."""
     await state.clear()
-    removed = await services.applications.withdraw_active(message.from_user.id)
+    removed = await services.applications.erase_user_data(message.from_user.id)
     if removed:
         await message.answer(t("withdraw_done", lang), reply_markup=ReplyKeyboardRemove())
     else:
         await message.answer(t("withdraw_none", lang))
+
+
+@router.message(Command("invite"))
+async def cmd_invite(
+    message: Message,
+    services: ServiceContainer,
+    command: CommandObject | None = None,
+    is_admin: bool = False,
+    lang: str = "ru",
+) -> None:
+    """Invite re-issue. Two modes:
+
+    * ``/invite`` (anyone) — self-service: an approved player whose link failed to
+      arrive gets a fresh one for themselves.
+    * ``/invite @username`` (admins only) — deliver a fresh link to a specific
+      approved player by their Telegram username, so an admin can nudge someone in
+      without waiting for them to run /invite.
+
+    Safe to hand out repeatedly — the link only files a join request, and
+    on_join_request re-checks approval before letting anyone in."""
+    arg = (command.args if command else None) or ""
+    if is_admin and arg.strip():
+        await _admin_invite_by_username(message, services, arg, lang)
+        return
+
+    profile = await services.users.get_profile(message.from_user.id)
+    if not profile or profile.status != "approved":
+        await message.answer(t("invite_not_approved", lang))
+        return
+    if profile.is_active:
+        await message.answer(t("invite_already_member", lang))
+        return
+    if not services.notifications:
+        await message.answer(t("invite_failed", lang))
+        return
+    delivered = await services.notifications.send_approval_with_invite(
+        message.from_user.id, profile.nickname or "", lang=lang
+    )
+    if not delivered:
+        await message.answer(t("invite_failed", lang))
+
+
+async def _admin_invite_by_username(
+    message: Message, services: ServiceContainer, raw: str, lang: str
+) -> None:
+    """Admin path for `/invite @username`: find the player in our DB by username
+    and DM them a fresh invite link if their application is approved."""
+    username = raw.strip().lstrip("@").strip()
+    if not username:
+        await message.answer("Формат: <code>/invite @username</code>")
+        return
+
+    user = await services.users.get_by_username(username)
+    if not user:
+        await message.answer(
+            f"@{safe(username)} не найден в базе. Пользователь должен был хотя бы "
+            "раз написать боту (после этого его username появляется у нас)."
+        )
+        return
+
+    profile = await services.users.get_profile(user.telegram_id)
+    if not profile or profile.status != "approved":
+        status = profile.status if profile else "нет активной заявки"
+        await message.answer(
+            f"@{safe(username)}: статус «{safe(status)}». Ссылку выдаём только "
+            "одобренным — сначала одобрите заявку через /review."
+        )
+        return
+    if profile.is_active:
+        await message.answer(f"@{safe(username)} уже в группе.")
+        return
+    if not services.notifications:
+        await message.answer("Уведомления недоступны.")
+        return
+
+    delivered = await services.notifications.send_approval_with_invite(
+        user.telegram_id, profile.nickname or "", lang=normalize_lang(user.language)
+    )
+    if delivered:
+        await message.answer(f"✅ Ссылка отправлена @{safe(username)}.")
+    else:
+        await message.answer(
+            f"Не удалось отправить ссылку @{safe(username)} — возможно, пользователь "
+            "не начинал диалог с ботом, и бот не может ему написать."
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -427,13 +515,15 @@ async def cmd_help(message: Message, is_admin: bool = False) -> None:
         "/register — подать заявку",
         "/status — статус вашей заявки",
         "/edit — изменить ник, email, навыки и категорию",
-        "/withdraw — удалить свою заявку и подать заново",
+        "/invite — получить ссылку в группу (после одобрения)",
+        "/withdraw — безвозвратно удалить все свои данные",
         "/language — сменить язык",
     ]
     if is_admin:
         lines += [
             "\n<b>Админ:</b>",
             "/review — очередь заявок: одобрение и отклонение",
+            "/invite @username — выслать ссылку конкретному одобренному игроку",
             "/stats — статистика",
             "/export — выгрузка CSV",
             "/broadcast — рассылка одобренным",
@@ -442,9 +532,11 @@ async def cmd_help(message: Message, is_admin: bool = False) -> None:
 
 
 @router.callback_query(F.data == "consent:decline")
-async def consent_decline(callback: CallbackQuery, state: FSMContext) -> None:
+async def consent_decline(
+    callback: CallbackQuery, state: FSMContext, lang: str = "ru"
+) -> None:
     await state.clear()
-    await callback.message.edit_text("Регистрация отменена.")
+    await callback.message.edit_text(t("consent_declined", lang))
     await callback.answer()
 
 
@@ -626,7 +718,8 @@ async def process_experience(callback: CallbackQuery, state: FSMContext) -> None
     await state.set_state(RegistrationStates.engine)
     await callback.message.edit_text(
         "<b>Шаг D — Движок</b>\n\n"
-        "Выберите движок, в котором работаете (можно несколько):",
+        "Выберите движок(и), с которыми работали (можно несколько). "
+        "Если ещё не пробовали — отметьте «Пока не работал(а)»:",
         reply_markup=engine_keyboard(set(engine), has_other="Other" in engine),
     )
     await callback.answer()
@@ -642,7 +735,8 @@ async def _go_to_tools(message: Message, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.tools)
     await message.answer(
         "<b>Шаг E — Инструменты</b>\n\n"
-        "Выберите инструменты, с которыми работаете (можно несколько):",
+        "Выберите инструменты, с которыми работали (можно несколько). "
+        "Если ещё не пробовали — отметьте «Пока не работал(а)»:",
         reply_markup=tools_keyboard(selected, has_other="Other" in selected),
     )
 
@@ -668,7 +762,14 @@ async def toggle_engine(callback: CallbackQuery, state: FSMContext) -> None:
 
     if action in selected:
         selected.remove(action)
+    elif action == NO_EXPERIENCE_OPTION:
+        # "Haven't worked with any" is exclusive: it replaces every other pick and
+        # clears any pending free-text.
+        selected = [NO_EXPERIENCE_OPTION]
+        await state.update_data(engine_other=None)
     else:
+        # Picking a real engine drops the "none yet" sentinel if it was set.
+        selected = [item for item in selected if item != NO_EXPERIENCE_OPTION]
         selected.append(action)
     await state.update_data(engine=selected)
     await callback.message.edit_reply_markup(
@@ -715,7 +816,12 @@ async def toggle_tool(callback: CallbackQuery, state: FSMContext) -> None:
 
     if action in selected:
         selected.remove(action)
+    elif action == NO_EXPERIENCE_OPTION:
+        # Exclusive "haven't worked with any" — replaces every other pick.
+        selected = [NO_EXPERIENCE_OPTION]
+        await state.update_data(tools_other=None)
     else:
+        selected = [item for item in selected if item != NO_EXPERIENCE_OPTION]
         selected.append(action)
     await state.update_data(tools=selected)
     await callback.message.edit_reply_markup(
@@ -772,10 +878,14 @@ async def toggle_motivation(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(RegistrationStates.confirm, F.data == "confirm:restart")
-async def confirm_restart(callback: CallbackQuery, state: FSMContext) -> None:
+async def confirm_restart(
+    callback: CallbackQuery, state: FSMContext, lang: str = "ru"
+) -> None:
     await state.clear()
     await state.set_state(RegistrationStates.consent)
-    await callback.message.edit_text(_consent_text(), reply_markup=consent_keyboard())
+    await callback.message.edit_text(
+        _consent_text(lang), reply_markup=consent_keyboard(lang)
+    )
     await callback.answer()
 
 
@@ -784,6 +894,7 @@ async def confirm_submit(
     callback: CallbackQuery,
     state: FSMContext,
     services: ServiceContainer,
+    lang: str = "ru",
 ) -> None:
     data = await state.get_data()
 
@@ -800,8 +911,17 @@ async def confirm_submit(
     if data.get("edit_mode"):
         # Editing an existing profile: update the row in place (status preserved),
         # don't create a new application.
-        updated = await services.applications.update_profile(callback.from_user.id, payload)
-        await services.session.commit()
+        try:
+            updated = await services.applications.update_profile(
+                callback.from_user.id, payload
+            )
+            await services.session.commit()
+        except IntegrityError:
+            # Only possible clash here is the player_code unique index (contact
+            # fields aren't touched); vanishingly rare with counter allocation.
+            await services.session.rollback()
+            await callback.answer(t("profile_update_failed", lang), show_alert=True)
+            return
         await state.clear()
         if updated:
             await callback.message.edit_text(
@@ -819,6 +939,11 @@ async def confirm_submit(
         await services.session.commit()
     except ActiveApplicationExistsError:
         await callback.answer("У вас уже есть активная заявка.", show_alert=True)
+        return
+    except QueueFullError:
+        # The queue filled while they were walking the form. Keep their answers
+        # in FSM state so a later "Отправить заявку" tap can still succeed.
+        await callback.answer(t("queue_full", lang), show_alert=True)
         return
     except IntegrityError:
         # nickname and email are UNIQUE — someone already took the one they chose.
@@ -848,10 +973,20 @@ async def confirm_submit(
     )
     await callback.message.answer("Регистрация завершена.", reply_markup=ReplyKeyboardRemove())
 
+    # application_id only — Telegram ids are PII and don't belong in INFO logs.
     logger.info(
         "application submitted",
-        extra={"extra_fields": {"application_id": application.id, "telegram_id": callback.from_user.id}},
+        extra={"extra_fields": {"application_id": application.id}},
     )
+
+    # Ping admins so a new application doesn't sit unnoticed in the queue
+    # (debounced inside the service so a burst can't spam them).
+    if services.notifications:
+        pending = await services.applications.count_pending()
+        await services.notifications.notify_admins_new_application(
+            application.nickname or "", application.skill_category_title, pending
+        )
+
     await callback.answer("Заявка принята")
 
 

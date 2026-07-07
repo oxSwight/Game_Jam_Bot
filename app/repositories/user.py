@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.models.user import User
@@ -8,6 +8,21 @@ from app.repositories.base import BaseRepository
 class UserRepository(BaseRepository[User]):
     def __init__(self, session) -> None:
         super().__init__(session, User)
+
+    async def get_by_username(self, username: str) -> User | None:
+        """Look up a user by their stored Telegram @username (case-insensitive,
+        without the leading @). Returns the first match; usernames aren't unique
+        over time (a handle can be re-used), but the stored value is our best
+        pointer for an admin-issued invite."""
+        cleaned = username.lstrip("@").strip()
+        if not cleaned:
+            return None
+        result = await self.session.scalars(
+            select(User)
+            .where(func.lower(User.telegram_username) == cleaned.lower())
+            .order_by(User.updated_at.desc())
+        )
+        return result.first()
 
     async def get_language(self, telegram_id: int) -> str | None:
         """Lightweight single-column lookup for the per-update language
