@@ -21,12 +21,21 @@ class ApplicationRepository(BaseRepository[Application]):
         return result.first()
 
     async def find_by_id_prefix(self, prefix: str) -> Application | None:
+        """Look up an application by (a prefix of) its id. Returns None when the
+        prefix is ambiguous — acting on 'whichever matched first' could hand an
+        admin decision to the wrong application."""
+        if not prefix:
+            return None
         result = await self.session.scalars(
             select(Application)
             .where(Application.id.startswith(prefix))
-            .options(selectinload(Application.user)),
+            .options(selectinload(Application.user))
+            .limit(2),
         )
-        return result.first()
+        matches = list(result.all())
+        if len(matches) != 1:
+            return None
+        return matches[0]
 
     async def count_by_status(self) -> dict[str, int]:
         result = await self.session.execute(

@@ -1,10 +1,12 @@
-aiogram>=3.13.0
-sqlalchemy[asyncio]>=2.0.0
-alembic>=1.13.0
-asyncpg>=0.29.0
-redis>=5.0.0
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-email-validator>=2.0.0
-python-dotenv>=1.0.0
-filelock>=3.13.0
+# Direct dependencies, pinned for reproducible builds and auditable CVE status.
+# Refresh deliberately (pip install -U + rerun tests), not implicitly on deploy.
+aiogram==3.29.1
+sqlalchemy[asyncio]==2.0.51
+alembic==1.18.5
+asyncpg==0.31.0
+redis==8.0.1
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0
+python-dotenv==1.2.2
+filelock==3.29.6

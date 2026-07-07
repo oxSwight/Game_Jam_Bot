@@ -2,19 +2,24 @@
 
 Telegram bot (aiogram 3) that acts as a hardened **gateway** into a closed game
 group. It vets applicants through a structured skills questionnaire and, on
-approval, mints a **single-use invite link** into the private group. All the
-actual gameplay and team-forming happen inside the group — this bot is only the
-door and its lock.
+approval, mints a **personal join-request invite link** into the private group —
+the join is auto-approved only for the vetted applicant, so a leaked link admits
+nobody else. All the actual gameplay and team-forming happen inside the group —
+this bot is only the door and its lock.
 
 ## Features
 
 **For players**
 - Anti-bot **emoji CAPTCHA** before the form opens.
+- Explicit **rules & privacy consent** (docs/PRIVACY.md, versioned; the accepted
+  version is recorded in the audit log).
 - Guided registration FSM: consent → nickname → email → category → role(s) →
   experience → engine → tools → motivation → confirm.
-- On approval: a personal, single-use group invite link is delivered by DM.
+- On approval: a personal join-request invite link is delivered by DM; the bot
+  confirms the join automatically. `/invite` re-issues a lost link.
 - `/status` — view your application, `/edit` — change nickname/email/skills,
-  `/withdraw` — delete and re-apply, `/language` — switch RU/EN UI.
+  `/withdraw` — **irreversibly erase all your data** (right to erasure),
+  `/language` — switch RU/EN UI.
 
 **For admins**
 - `/review` — one card at a time, swipe-through queue. **Approve** / **Reject**
@@ -63,6 +68,15 @@ Key correctness guarantees:
   (`status != 'rejected'`), closing the check-then-insert race at the DB level.
 - **Commit-before-invite**: an approval is durably persisted before the invite
   link is minted and DMed.
+- **Atomic decisions**: approve/reject is a conditional
+  `UPDATE … WHERE status='pending_review'`, so two admins racing on the same
+  card produce exactly one decision and one invite.
+- **Race-free player codes**: public ids come from per-category counter rows
+  (`UPDATE … RETURNING`), not a `max()+1` scan.
+- **Identity-checked joins**: invite links only file a join *request*; the bot
+  approves it iff that user's application is APPROVED.
+- **Single instance**: a local file lock plus a PostgreSQL advisory lock (two
+  containers on different hosts can't double-poll the same bot).
 
 ## Setup
 
@@ -80,9 +94,22 @@ python -m app.main
 ### Docker
 
 ```bash
-cp .env.example .env    # set BOT_TOKEN, ADMIN_IDS, GROUP_CHAT_ID
+cp .env.example .env    # set BOT_TOKEN, ADMIN_IDS, GROUP_CHAT_ID, POSTGRES_PASSWORD
 docker compose up -d    # bot + postgres + redis
 ```
+
+`POSTGRES_PASSWORD` has **no default** — compose refuses to start without it.
+The bot container has a heartbeat-file healthcheck (stale > 90 s → unhealthy).
+
+## Privacy
+
+The consent step shows a versioned rules & privacy document
+([docs/PRIVACY.md](docs/PRIVACY.md)); the accepted version is recorded in the
+application's audit log. `/withdraw` implements the right to erasure: it hard-
+deletes the user row (nickname, email, username, language) and every
+application — including rejected ones — with their audit logs. Audit log
+entries never store contact values, and Telegram ids are kept out of INFO-level
+logs.
 
 ## Database migrations
 
@@ -115,6 +142,7 @@ CAPTCHA/queue-cap/link-ban gates, the /review flow, i18n, and the throttle.
 | `GROUP_CHAT_ID`| —                                                    | Gated group id (for invite links)    |
 | `PENDING_CAP`  | `300`                                                | Max applications in the review queue |
 | `DATABASE_URL` | `postgresql+asyncpg://gamejam:gamejam@localhost/...` | SQLAlchemy async URL (PostgreSQL)    |
+| `POSTGRES_PASSWORD` | — (required for compose)                        | DB password, interpolated by compose |
 | `REDIS_URL`    | —                                                    | Redis for FSM storage                |
 | `FSM_STORAGE`  | `redis`                                              | `redis` or `memory`                  |
 | `LOG_LEVEL`    | `INFO`                                               | Logging level                        |

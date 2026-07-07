@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list, alias="ADMIN_IDS")
 
     # The private/closed group the bot gates access to. On approval the bot mints a
-    # single-use invite link into this chat. Optional so the bot can still boot for
+    # join-request invite link into this chat (the join is then auto-approved only
+    # for the approved applicant). Optional so the bot can still boot for
     # local/testing, but approvals fail loudly (and are logged) until it is set.
     group_chat_id: int | None = Field(default=None, alias="GROUP_CHAT_ID")
 

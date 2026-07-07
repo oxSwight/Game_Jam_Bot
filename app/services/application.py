@@ -1,5 +1,10 @@
-from app.data.catalog import PLAYER_CODE_WIDTH, category_code_base
+from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
+
+from app.core.config import get_settings
+from app.data.catalog import PLAYER_CODE_WIDTH, PRIVACY_VERSION, category_code_base
 from app.models.application import Application, ApplicationStatus
+from app.models.counter import PlayerCodeCounter
 from app.models.log import Log
 from app.schemas.registration import ApplicationRead, RegistrationCreate
 from app.services.base import BaseService
@@ -10,6 +15,10 @@ class ActiveApplicationExistsError(Exception):
     pass
 
 
+class QueueFullError(Exception):
+    """The pending-review queue reached PENDING_CAP; no new submissions."""
+
+
 class ApplicationService(BaseService):
     async def has_active_application(self, telegram_id: int) -> bool:
         user = await self.users.get_by_telegram_id(telegram_id)
@@ -18,7 +27,23 @@ class ApplicationService(BaseService):
         application = await self.applications.get_active_for_user(user.id)
         return application is not None
 
+    async def has_approved_application(self, telegram_id: int) -> bool:
+        """True if the user's active application is APPROVED — the gate the
+        join-request handler checks before letting anyone into the group."""
+        user = await self.users.get_by_telegram_id(telegram_id)
+        if not user:
+            return False
+        application = await self.applications.get_active_for_user(user.id)
+        return application is not None and application.status == ApplicationStatus.APPROVED
+
     async def submit_registration(self, payload: RegistrationCreate) -> ApplicationRead:
+        # Re-check the queue cap at submit time: /register checked it when the
+        # form OPENED, but the queue may have filled while the form was walked.
+        # Checked before get_or_create so a refused submit leaves no side effects.
+        pending = await self.applications.count_pending()
+        if pending >= get_settings().pending_cap:
+            raise QueueFullError()
+
         user = await self.users.get_or_create(
             telegram_id=payload.identity.telegram_id,
             telegram_username=payload.identity.telegram_username,
@@ -60,7 +85,11 @@ class ApplicationService(BaseService):
                 application_id=application.id,
                 actor_telegram_id=payload.identity.telegram_id,
                 action="application_submitted",
-                details=f"status={ApplicationStatus.PENDING_REVIEW.value}",
+                # Record which version of the rules/privacy text was accepted.
+                details=(
+                    f"status={ApplicationStatus.PENDING_REVIEW.value}"
+                    f" consent_v={PRIVACY_VERSION}"
+                ),
             ),
         )
         await self.session.flush()
@@ -68,13 +97,38 @@ class ApplicationService(BaseService):
         return UserService._to_read(user, application)
 
     async def _next_player_code(self, category_id: str) -> int:
-        """Assign the next category-coded public id (e.g. 10007). Single polling
-        instance means this max()+1 is race-free enough; the unique index is the
-        backstop."""
-        base = category_code_base(category_id)
-        block = 10 ** PLAYER_CODE_WIDTH
-        current = await self.applications.max_player_code_in_block(base, block)
-        return (current or base) + 1
+        """Atomically allocate the next category-coded public id (e.g. 1000007).
+
+        ``UPDATE … last_code = last_code + 1 RETURNING`` row-locks the counter, so
+        concurrent submissions serialize on the row instead of racing a max() scan.
+        The fallback branch seeds a missing counter (legacy DB adopted without the
+        seeding migration) from the highest code already present in the block.
+        """
+        for _ in range(2):
+            result = await self.session.execute(
+                sa_update(PlayerCodeCounter)
+                .where(PlayerCodeCounter.category_id == category_id)
+                .values(last_code=PlayerCodeCounter.last_code + 1)
+                .returning(PlayerCodeCounter.last_code)
+            )
+            code = result.scalar_one_or_none()
+            if code is not None:
+                return code
+
+            base = category_code_base(category_id)
+            block = 10 ** PLAYER_CODE_WIDTH
+            current = await self.applications.max_player_code_in_block(base, block)
+            try:
+                # SAVEPOINT so a lost seeding race doesn't poison the outer
+                # transaction — we just retry the UPDATE against the winner's row.
+                async with self.session.begin_nested():
+                    self.session.add(
+                        PlayerCodeCounter(category_id=category_id, last_code=current or base)
+                    )
+                    await self.session.flush()
+            except IntegrityError:
+                continue
+        raise RuntimeError(f"could not allocate player_code for category {category_id!r}")
 
     async def update_status(
         self,
@@ -82,11 +136,36 @@ class ApplicationService(BaseService):
         status: ApplicationStatus,
         actor_telegram_id: int | None = None,
         reason: str | None = None,
+        expected_status: ApplicationStatus | None = None,
     ) -> Application | None:
-        application = await self.applications.get_by_id(application_id)
-        if not application:
-            return None
-        application.status = status
+        """Set an application's status; returns the application or None.
+
+        With ``expected_status`` the transition is a conditional UPDATE — it only
+        succeeds if the row still holds that status. Two admins approving the same
+        card concurrently therefore can't both win: the second UPDATE matches zero
+        rows and returns None, and no second invite is minted.
+        """
+        if expected_status is not None:
+            result = await self.session.execute(
+                sa_update(Application)
+                .where(
+                    Application.id == application_id,
+                    Application.status == expected_status,
+                )
+                .values(status=status)
+            )
+            if result.rowcount != 1:
+                return None
+            application = await self.applications.get_by_id(application_id)
+            if application is None:  # deleted between UPDATE and re-read
+                return None
+            await self.session.refresh(application)
+        else:
+            application = await self.applications.get_by_id(application_id)
+            if not application:
+                return None
+            application.status = status
+
         self.session.add(
             Log(
                 application_id=application.id,
@@ -140,7 +219,12 @@ class ApplicationService(BaseService):
                 application_id=application.id,
                 actor_telegram_id=telegram_id,
                 action="contact_updated",
-                details=f"nickname={nickname or '-'} email={email or '-'}",
+                # Which fields changed, never the values — the audit log must not
+                # accumulate PII (data minimisation; /withdraw erases the rest).
+                details=(
+                    f"nickname={'changed' if nickname is not None else '-'}"
+                    f" email={'changed' if email is not None else '-'}"
+                ),
             ),
         )
         await self.session.flush()
@@ -210,15 +294,16 @@ class ApplicationService(BaseService):
     async def find_by_prefix(self, prefix: str) -> Application | None:
         return await self.applications.find_by_id_prefix(prefix)
 
-    async def withdraw_active(self, telegram_id: int) -> bool:
-        """Hard-delete the caller's own active (non-rejected) application so they
-        can register again. Used for self-service reset / cleaning up test data."""
+    async def erase_user_data(self, telegram_id: int) -> bool:
+        """Right-to-erasure: hard-delete EVERYTHING stored about the caller — the
+        user row (nickname, email, username, language) and, via cascade, all their
+        applications (active AND rejected) with their audit logs. Irreversible;
+        the player can register again from scratch afterwards."""
         user = await self.users.get_by_telegram_id(telegram_id)
         if not user:
             return False
-        application = await self.applications.get_active_for_user(user.id)
-        if not application:
-            return False
-        await self.applications.delete(application)
+        await self.session.delete(user)
+        # Leave a single anonymous trace so admins can see erasures happen at all.
+        self.session.add(Log(application_id=None, actor_telegram_id=None, action="data_erased"))
         await self.session.flush()
         return True

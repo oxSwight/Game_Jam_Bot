@@ -10,7 +10,7 @@ import logging
 
 from aiogram import Router
 from aiogram.enums import ChatMemberStatus
-from aiogram.types import ChatMemberUpdated
+from aiogram.types import ChatJoinRequest, ChatMemberUpdated
 
 from app.core.config import get_settings
 from app.core.i18n import normalize_lang
@@ -38,6 +38,30 @@ def _is_member(chat_member) -> bool:
     return False
 
 
+@router.chat_join_request()
+async def on_join_request(event: ChatJoinRequest, services: ServiceContainer) -> None:
+    """The identity check at the door. Invite links are minted with
+    creates_join_request=True, so following one only files a REQUEST; here we
+    approve it iff the requester's own application is APPROVED. A leaked or
+    forwarded link therefore admits nobody but the person it was issued for."""
+    settings = get_settings()
+    if settings.group_chat_id is None or event.chat.id != settings.group_chat_id:
+        return
+
+    approved = await services.applications.has_approved_application(event.from_user.id)
+    try:
+        if approved:
+            await event.approve()
+        else:
+            await event.decline()
+    except Exception:
+        # Request already handled by a human admin, expired, or a flood limit —
+        # nothing to recover; the user can simply follow the link again.
+        logger.warning("could not settle join request", exc_info=True)
+        return
+    logger.info("join request %s", "approved" if approved else "declined")
+
+
 @router.chat_member()
 async def on_group_membership_change(
     event: ChatMemberUpdated, services: ServiceContainer
@@ -61,9 +85,10 @@ async def on_group_membership_change(
         logger.debug("membership change for unknown user %s — ignored", affected.id)
         return
 
+    # Log the internal row id, not the Telegram id — keeps PII out of the logs.
     logger.info(
-        "membership change: user=%s is_active=%s (%s -> %s)",
-        affected.id,
+        "membership change: user_id=%s is_active=%s (%s -> %s)",
+        user.id,
         now_member,
         event.old_chat_member.status,
         event.new_chat_member.status,

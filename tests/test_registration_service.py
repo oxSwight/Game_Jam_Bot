@@ -78,12 +78,15 @@ async def test_reject_then_reregister_allowed(services, session):
     assert app2.id != app.id
 
 
-async def test_withdraw_active(services, session):
+async def test_withdraw_erases_all_user_data(services, session):
     await services.applications.submit_registration(make_payload())
     await session.commit()
 
-    assert await services.applications.withdraw_active(1001) is True
+    assert await services.applications.erase_user_data(1001) is True
     await session.commit()
+    # Right to erasure: not just the application — the user row (nickname,
+    # email, username) is gone too, so nothing identifying remains.
     assert await services.applications.has_active_application(1001) is False
-    # withdrawing again finds nothing
-    assert await services.applications.withdraw_active(1001) is False
+    assert await services.users.get_by_telegram_id(1001) is None
+    # erasing again finds nothing
+    assert await services.applications.erase_user_data(1001) is False

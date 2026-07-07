@@ -16,12 +16,18 @@ CAPTCHA_POOL: tuple[str, ...] = (
     "🚗", "🐶", "🍎", "⚽", "🌳", "⭐", "🔑", "🎈", "🚀", "🎧", "🍔", "🐱",
 )
 
-CAPTCHA_CHOICES = 5
+# 8 options → 12.5% blind-guess odds per attempt (was 5 / 20%). Combined with the
+# throttle and the flow reset on a wrong tap, brute-forcing is uneconomical.
+CAPTCHA_CHOICES = 8
+
+# OS-entropy RNG: Mersenne Twister state could in principle be recovered from
+# observed challenges; SystemRandom can't be predicted.
+_rng = random.SystemRandom()
 
 
 def build_captcha() -> tuple[list[str], int]:
-    """Return (options, target_index): five distinct emojis and the index of the
-    one the user must tap. Caller shows ``options[target_index]`` in the prompt."""
-    options = random.sample(CAPTCHA_POOL, CAPTCHA_CHOICES)
-    target_index = random.randrange(CAPTCHA_CHOICES)
+    """Return (options, target_index): distinct emojis and the index of the one
+    the user must tap. Caller shows ``options[target_index]`` in the prompt."""
+    options = _rng.sample(CAPTCHA_POOL, CAPTCHA_CHOICES)
+    target_index = _rng.randrange(CAPTCHA_CHOICES)
     return options, target_index

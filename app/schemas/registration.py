@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.data.catalog import (
     CATEGORY_BY_ID,
+    ENGINES,
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
     TOOLS,
@@ -115,6 +116,40 @@ class RegistrationCreate(BaseModel):
     def validate_main_category(cls, value: str) -> str:
         if value not in CATEGORY_BY_ID:
             raise ValueError("invalid main category")
+        return value
+
+    # The multi-select handlers append whatever token arrives in callback_data,
+    # so the final payload is where forged values get stopped: everything below
+    # must come from the fixed catalog, or the submission is refused.
+    @field_validator("experience_level")
+    @classmethod
+    def validate_experience(cls, value: str) -> str:
+        if value not in EXPERIENCE_LEVELS:
+            raise ValueError("invalid experience level")
+        return value
+
+    @field_validator("engine")
+    @classmethod
+    def validate_engine(cls, value: list[str]) -> list[str]:
+        invalid = [item for item in value if item not in ENGINES]
+        if invalid:
+            raise ValueError(f"invalid engines: {', '.join(invalid)}")
+        return value
+
+    @field_validator("tools")
+    @classmethod
+    def validate_tools(cls, value: list[str]) -> list[str]:
+        invalid = [item for item in value if item not in TOOLS]
+        if invalid:
+            raise ValueError(f"invalid tools: {', '.join(invalid)}")
+        return value
+
+    @field_validator("motivations")
+    @classmethod
+    def validate_motivations(cls, value: list[str]) -> list[str]:
+        invalid = [item for item in value if item not in MOTIVATIONS]
+        if invalid:
+            raise ValueError(f"invalid motivations: {', '.join(invalid)}")
         return value
 
     @classmethod

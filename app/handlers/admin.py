@@ -1,9 +1,10 @@
 """Admin review dashboard.
 
 A single /review card walks the pending queue one application at a time. Acting
-on it (approve/reject) performs the decision — minting a single-use group invite
-on approval — then edits the same message to show the next application, so admins
-never get one push per sign-up (which would blow Telegram's rate limits).
+on it (approve/reject) performs the decision — minting a personal join-request
+group invite on approval — then edits the same message to show the next
+application, so admins never get one push per sign-up (which would blow
+Telegram's rate limits).
 """
 
 import logging
@@ -51,7 +52,8 @@ async def cmd_review(message: Message, services: ServiceContainer) -> None:
 
 @router.callback_query(F.data.startswith("rev:"))
 async def cb_review_decision(callback: CallbackQuery, services: ServiceContainer) -> None:
-    # callback data: "rev:<approve|reject>:<short_id>"
+    # callback data: "rev:<approve|reject>:<application_id>" (full UUID; old
+    # cards may still carry an 8-char prefix — find_by_prefix handles both)
     try:
         _, action, prefix = callback.data.split(":", 2)
     except ValueError:
@@ -86,9 +88,16 @@ async def _approve(
     telegram_id = user.telegram_id if user else None
     lang = normalize_lang(user.language if user else None)
 
-    await services.applications.update_status(
-        application.id, ApplicationStatus.APPROVED, actor_telegram_id=actor_id
+    # Conditional transition: only wins if the row is still pending. Two admins
+    # racing on the same card → exactly one approval, exactly one invite.
+    updated = await services.applications.update_status(
+        application.id,
+        ApplicationStatus.APPROVED,
+        actor_telegram_id=actor_id,
+        expected_status=ApplicationStatus.PENDING_REVIEW,
     )
+    if updated is None:
+        return "Заявка уже обработана."
     await services.session.commit()
 
     if not (services.notifications and telegram_id):
@@ -112,9 +121,14 @@ async def _reject(
     telegram_id = user.telegram_id if user else None
     lang = normalize_lang(user.language if user else None)
 
-    await services.applications.update_status(
-        application.id, ApplicationStatus.REJECTED, actor_telegram_id=actor_id
+    updated = await services.applications.update_status(
+        application.id,
+        ApplicationStatus.REJECTED,
+        actor_telegram_id=actor_id,
+        expected_status=ApplicationStatus.PENDING_REVIEW,
     )
+    if updated is None:
+        return "Заявка уже обработана."
     await services.session.commit()
 
     if services.notifications and telegram_id:

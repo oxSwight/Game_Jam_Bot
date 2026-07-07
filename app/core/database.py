@@ -4,7 +4,9 @@ import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -81,3 +83,54 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+# Arbitrary but fixed application-wide key for pg_advisory_lock.
+_SINGLETON_LOCK_KEY = 823_547_001
+
+
+class AnotherInstanceRunningError(RuntimeError):
+    pass
+
+
+async def acquire_singleton_db_lock() -> AsyncConnection | None:
+    """Cluster-wide single-instance guarantee via a Postgres advisory lock.
+
+    The local file lock (InstanceLock) only protects one host; two containers on
+    different machines pointed at the same database would still double-poll. The
+    advisory lock is held by a dedicated connection for the process lifetime and
+    released automatically by Postgres if the process dies. Returns the holding
+    connection (close it to release), or None on non-Postgres databases (tests).
+    """
+    if engine.dialect.name != "postgresql":
+        return None
+    conn = await engine.connect()
+    try:
+        acquired = (
+            await conn.execute(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": _SINGLETON_LOCK_KEY},
+            )
+        ).scalar()
+    except Exception:
+        await conn.close()
+        raise
+    if not acquired:
+        await conn.close()
+        raise AnotherInstanceRunningError(
+            "another bot instance already holds the database singleton lock"
+        )
+    return conn
+
+
+async def release_singleton_db_lock(conn: AsyncConnection | None) -> None:
+    if conn is None:
+        return
+    try:
+        await conn.execute(
+            text("SELECT pg_advisory_unlock(:key)"), {"key": _SINGLETON_LOCK_KEY}
+        )
+    except Exception:
+        logger.debug("could not release advisory lock explicitly", exc_info=True)
+    finally:
+        await conn.close()

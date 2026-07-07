@@ -1,5 +1,9 @@
 import asyncio
 import logging
+import sys
+import tempfile
+import time
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -14,7 +18,12 @@ from aiogram.types import (
 )
 
 from app.core.config import get_settings
-from app.core.database import run_migrations
+from app.core.database import (
+    AnotherInstanceRunningError,
+    acquire_singleton_db_lock,
+    release_singleton_db_lock,
+    run_migrations,
+)
 from app.core.instance_lock import InstanceLock
 from app.core.logging import setup_logging
 from app.core.redis import create_fsm_storage, create_redis
@@ -37,7 +46,8 @@ USER_COMMANDS = [
     BotCommand(command="register", description="Подать заявку"),
     BotCommand(command="status", description="Статус вашей заявки"),
     BotCommand(command="edit", description="Изменить ник/email/навыки"),
-    BotCommand(command="withdraw", description="Удалить заявку и подать заново"),
+    BotCommand(command="invite", description="Ссылка в группу (после одобрения)"),
+    BotCommand(command="withdraw", description="Удалить все свои данные"),
     BotCommand(command="language", description="Язык / Language"),
     BotCommand(command="help", description="Список команд"),
 ]
@@ -63,6 +73,32 @@ async def _setup_commands(bot: Bot, admin_ids: list[int]) -> None:
             logger.warning("could not set admin commands for %s", admin_id, exc_info=True)
 
 
+# The GROUP_CHAT_ID shipped in .env.example — a live deployment left on this value
+# has never configured its real group, so approvals can't mint invite links.
+_EXAMPLE_GROUP_CHAT_ID = -1001234567890
+
+
+def _warn_on_risky_config(settings) -> None:
+    """Surface config that silently breaks the bot at INFO/WARNING so it's caught
+    on startup instead of via a confused admin ('/review does nothing')."""
+    if not settings.admin_ids:
+        logger.warning(
+            "ADMIN_IDS is EMPTY — /review, /stats, /export and /broadcast are "
+            "disabled and nobody can review applications. Set ADMIN_IDS."
+        )
+    if settings.group_chat_id is None:
+        logger.warning(
+            "GROUP_CHAT_ID is not set — approvals cannot mint invite links. "
+            "Set it to your gated group's numeric id."
+        )
+    elif settings.group_chat_id == _EXAMPLE_GROUP_CHAT_ID:
+        logger.warning(
+            "GROUP_CHAT_ID is still the .env.example placeholder (%s) — approvals "
+            "cannot mint invite links. Set it to your real group id.",
+            _EXAMPLE_GROUP_CHAT_ID,
+        )
+
+
 async def _create_storage() -> tuple[BaseStorage, object | None]:
     settings = get_settings()
 
@@ -82,13 +118,41 @@ async def _create_storage() -> tuple[BaseStorage, object | None]:
     return create_fsm_storage(redis), redis
 
 
+# Touched every HEARTBEAT_INTERVAL seconds while polling is alive; the Docker
+# healthcheck fails the container when the file goes stale.
+HEARTBEAT_PATH = Path(tempfile.gettempdir()) / "gamejam_bot_heartbeat"
+HEARTBEAT_INTERVAL = 30.0
+
+
+async def _heartbeat() -> None:
+    while True:
+        try:
+            HEARTBEAT_PATH.write_text(str(time.time()))
+        except OSError:
+            logger.debug("could not write heartbeat file", exc_info=True)
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+
 async def main() -> None:
     lock = InstanceLock()
     lock.acquire()
 
     setup_logging()
     settings = get_settings()
+    _warn_on_risky_config(settings)
     await run_migrations()
+
+    # Cluster-wide singleton: the file lock above only guards this host; the
+    # advisory lock guards the shared database (e.g. two containers).
+    try:
+        db_lock = await acquire_singleton_db_lock()
+    except AnotherInstanceRunningError:
+        logger.error(
+            "Another bot instance already holds the database singleton lock. "
+            "Stop it before starting a new one."
+        )
+        lock.release()
+        sys.exit(1)
 
     storage, redis = await _create_storage()
 
@@ -133,18 +197,23 @@ async def main() -> None:
 
     await bot.delete_webhook(drop_pending_updates=True)
     await _setup_commands(bot, settings.admin_ids)
+    # Log the admin COUNT, not the ids — Telegram ids are PII.
     logger.info(
         "bot starting",
-        extra={"extra_fields": {"log_json": settings.log_json, "admin_ids": settings.admin_ids}},
+        extra={"extra_fields": {"log_json": settings.log_json, "admins": len(settings.admin_ids)}},
     )
+    heartbeat_task = asyncio.create_task(_heartbeat())
     try:
-        # resolve_used_update_types() makes Telegram deliver chat_member updates
-        # (needed by the membership handler) — they're excluded from the default set.
+        # resolve_used_update_types() makes Telegram deliver chat_member and
+        # chat_join_request updates (needed by the membership handlers) — they're
+        # excluded from the default set.
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        heartbeat_task.cancel()
         if redis is not None:
             await redis.aclose()
         await bot.session.close()
+        await release_singleton_db_lock(db_lock)
         lock.release()
 
 
