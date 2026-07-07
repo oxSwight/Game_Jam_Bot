@@ -103,12 +103,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "Links are not allowed. Registration was reset. Start again: /register",
     },
     "withdraw_done": {
-        "ru": "Ваша заявка удалена.\nТеперь можно подать новую: /register",
-        "en": "Your application was deleted.\nYou can now submit a new one: /register",
+        "ru": (
+            "Все ваши данные удалены: заявка (включая отклонённые), никнейм, "
+            "email и настройки. Это действие необратимо.\n\n"
+            "Подать новую заявку: /register"
+        ),
+        "en": (
+            "All your data has been erased: applications (including rejected "
+            "ones), nickname, email and settings. This cannot be undone.\n\n"
+            "To apply again: /register"
+        ),
     },
     "withdraw_none": {
-        "ru": "Активная заявка не найдена. Можно подать новую: /register",
-        "en": "No active application found. You can submit a new one: /register",
+        "ru": "О вас ничего не сохранено. Подать заявку: /register",
+        "en": "We have no data stored about you. To apply: /register",
     },
     "language_prompt": {
         "ru": "Выберите язык / Choose your language:",
@@ -124,23 +132,120 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "notify_approved": {
         "ru": (
             "Ваша заявка одобрена.\n\n"
-            "Вот ваша персональная ссылка на вступление в игру:\n{link}\n\n"
-            "Ссылка одноразовая — не передавайте её другим."
+            "Вот ваша персональная ссылка для вступления в игру:\n{link}\n\n"
+            "Перейдите по ней и отправьте запрос на вступление — бот подтвердит "
+            "вас автоматически. Ссылка персональная: чужие запросы по ней "
+            "отклоняются. Если ссылка не сработала — /invite выдаст новую."
         ),
         "en": (
             "Your application was approved.\n\n"
-            "Here is your personal invite link to join the game:\n{link}\n\n"
-            "The link is single-use — do not share it."
+            "Here is your personal link to join the game:\n{link}\n\n"
+            "Open it and send a join request — the bot will confirm you "
+            "automatically. The link is personal: anyone else's request through "
+            "it is declined. If the link fails, /invite issues a new one."
         ),
     },
     "notify_approved_no_link": {
         "ru": (
             "Ваша заявка одобрена. Пригласительную ссылку не удалось создать "
-            "автоматически — с вами свяжется администратор."
+            "автоматически — попробуйте /invite чуть позже или дождитесь "
+            "администратора."
         ),
         "en": (
             "Your application was approved. The invite link could not be created "
-            "automatically — an admin will contact you."
+            "automatically — try /invite a bit later or wait for an admin."
+        ),
+    },
+    "invite_not_approved": {
+        "ru": (
+            "Персональная ссылка выдаётся после одобрения заявки.\n"
+            "Проверить статус: /status"
+        ),
+        "en": (
+            "A personal invite link is issued once your application is approved.\n"
+            "Check your status: /status"
+        ),
+    },
+    "invite_already_member": {
+        "ru": "Вы уже состоите в группе — ссылка не нужна.",
+        "en": "You are already a member of the group — no link needed.",
+    },
+    "invite_failed": {
+        "ru": "Не удалось создать ссылку. Попробуйте позже: /invite",
+        "en": "Could not create the link. Please try again later: /invite",
+    },
+    "consent_text": {
+        "ru": (
+            "<b>Правила и политика конфиденциальности (v{version})</b>\n\n"
+            "<b>Какие данные мы сохраняем:</b> ваш Telegram ID и username, "
+            "никнейм, email и ответы анкеты (категория, роли, опыт, движок, "
+            "инструменты, мотивация), язык интерфейса и факт членства в группе.\n\n"
+            "<b>Зачем:</b> ручная проверка заявки модераторами, выдача "
+            "персонального приглашения в закрытую группу и связь по вопросам "
+            "участия. Данные видят только администраторы группы; они не "
+            "передаются третьим лицам и не используются для рекламы.\n\n"
+            "<b>Хранение и удаление:</b> данные хранятся, пока действует ваша "
+            "заявка или членство. Команда /withdraw в любой момент безвозвратно "
+            "удаляет всё: заявку (включая отклонённые), ник, email и настройки. "
+            "Выход из группы сам по себе данные не удаляет.\n\n"
+            "<b>Правила участия:</b>\n"
+            "• это MVP-тест — возможны сбои;\n"
+            "• заявка проверяется вручную; после отклонения можно подать новую;\n"
+            "• ссылки и спам в анкете запрещены — такая заявка сбрасывается;\n"
+            "• пригласительная ссылка персональная, передавать её бессмысленно;\n"
+            "• будьте готовы подтвердить навыки примерами работ;\n"
+            "• в группе — уважительное общение.\n\n"
+            "Нажимая «Принимаю условия», вы соглашаетесь с обработкой указанных "
+            "данных на этих условиях. Полный текст: docs/PRIVACY.md в репозитории "
+            "проекта или по запросу у администратора."
+        ),
+        "en": (
+            "<b>Rules and privacy policy (v{version})</b>\n\n"
+            "<b>What we store:</b> your Telegram ID and username, nickname, "
+            "email and questionnaire answers (category, roles, experience, "
+            "engine, tools, motivation), UI language and group-membership "
+            "status.\n\n"
+            "<b>Why:</b> manual review of your application by moderators, "
+            "issuing a personal invite into the closed group, and contacting "
+            "you about participation. Only group administrators can see the "
+            "data; it is never shared with third parties or used for ads.\n\n"
+            "<b>Storage and deletion:</b> data is kept while your application "
+            "or membership is active. The /withdraw command irreversibly "
+            "erases everything at any time: applications (including rejected "
+            "ones), nickname, email and settings. Leaving the group alone does "
+            "not erase data.\n\n"
+            "<b>Participation rules:</b>\n"
+            "• this is an MVP test — glitches may happen;\n"
+            "• applications are reviewed manually; you may re-apply after a "
+            "rejection;\n"
+            "• links and spam in the form are forbidden — such an application "
+            "is reset;\n"
+            "• the invite link is personal, sharing it is pointless;\n"
+            "• be ready to back up your skills with work samples;\n"
+            "• be respectful in the group.\n\n"
+            "By tapping \"I accept the terms\" you consent to the processing of "
+            "the data above under these terms. Full text: docs/PRIVACY.md in "
+            "the project repository or from any administrator on request."
+        ),
+    },
+    "consent_declined": {
+        "ru": "Регистрация отменена. Без согласия с условиями подать заявку нельзя.",
+        "en": "Registration cancelled. An application requires accepting the terms.",
+    },
+    "profile_update_failed": {
+        "ru": "Не удалось обновить профиль, попробуйте ещё раз: /edit",
+        "en": "Could not update the profile, please try again: /edit",
+    },
+    "admin_new_application": {
+        "ru": (
+            "🆕 Новая заявка: <b>{nickname}</b> · {category}\n"
+            "В очереди: {count}\n"
+            "Открыть очередь: /review"
+        ),
+        "en": (
+            "🆕 New application: <b>{nickname}</b> · {category}\n"
+            "In queue: {count}\n"
+            "Open the queue: /review"
         ),
     },
     "notify_rejected": {

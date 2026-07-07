@@ -13,6 +13,7 @@ from app.data.catalog import (
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
     TOOLS,
+    option_label,
 )
 
 # Reply-keyboard label for aborting registration. Kept as a module constant so the
@@ -31,12 +32,12 @@ def language_keyboard() -> InlineKeyboardMarkup:
 
 
 def captcha_keyboard(options: list[str]) -> InlineKeyboardMarkup:
-    """One row of emoji buttons for the anti-bot gate. Each button carries only
-    its index in callback_data (cap:<i>), never the emoji itself."""
+    """Emoji buttons for the anti-bot gate, four per row. Each button carries
+    only its index in callback_data (cap:<i>), never the emoji itself."""
     builder = InlineKeyboardBuilder()
     for idx, emoji in enumerate(options):
         builder.button(text=emoji, callback_data=f"cap:{idx}")
-    builder.adjust(len(options))
+    builder.adjust(4)
     return builder.as_markup()
 
 
@@ -50,10 +51,17 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def consent_keyboard() -> InlineKeyboardMarkup:
+_CONSENT_LABELS = {
+    "ru": ("Принимаю условия", "Отказаться"),
+    "en": ("I accept the terms", "Decline"),
+}
+
+
+def consent_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    accept, decline = _CONSENT_LABELS.get(lang, _CONSENT_LABELS["ru"])
     builder = InlineKeyboardBuilder()
-    builder.button(text="Принимаю все условия", callback_data="consent:accept")
-    builder.button(text="Отмена", callback_data="consent:decline")
+    builder.button(text=accept, callback_data="consent:accept")
+    builder.button(text=decline, callback_data="consent:decline")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -131,7 +139,7 @@ def engine_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMar
     builder = InlineKeyboardBuilder()
     for engine in ENGINES:
         prefix = "✓ " if engine in selected else ""
-        builder.button(text=f"{prefix}{engine}", callback_data=f"engine:{engine}")
+        builder.button(text=f"{prefix}{option_label(engine)}", callback_data=f"engine:{engine}")
     builder.adjust(1)
     builder.row(
         InlineKeyboardButton(text="Готово", callback_data="engine:done"),
@@ -144,7 +152,7 @@ def tools_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMark
     builder = InlineKeyboardBuilder()
     for tool in TOOLS:
         prefix = "✓ " if tool in selected else ""
-        builder.button(text=f"{prefix}{tool}", callback_data=f"tool:{tool}")
+        builder.button(text=f"{prefix}{option_label(tool)}", callback_data=f"tool:{tool}")
     builder.adjust(1)
     builder.row(
         InlineKeyboardButton(text="Готово", callback_data="tool:done"),

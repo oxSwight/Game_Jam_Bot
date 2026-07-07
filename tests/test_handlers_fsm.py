@@ -60,6 +60,7 @@ class FakeNotifications:
         self.sent: list = []
         self.approved: list = []
         self.rejected: list = []
+        self.admin_pings: list = []
 
     async def broadcast(self, recipients, text):
         self.sent.append((list(recipients), text))
@@ -71,6 +72,9 @@ class FakeNotifications:
 
     async def notify_user_rejected(self, telegram_id, reason=None, lang="ru"):
         self.rejected.append((telegram_id, reason, lang))
+
+    async def notify_admins_new_application(self, nickname, category, pending_count):
+        self.admin_pings.append((nickname, category, pending_count))
 
 
 async def _submit(services, session, **kw):
@@ -96,10 +100,12 @@ async def test_captcha_correct_advances_to_consent(services):
 
 
 async def test_captcha_wrong_cancels_registration(services):
+    from app.data.captcha import CAPTCHA_CHOICES
+
     state = make_state(111)
     await reg_h.cmd_register(FakeMessage("/register", user_id=111), state, services)
     target = (await state.get_data())["captcha_answer"]
-    wrong = (target + 1) % 5
+    wrong = (target + 1) % CAPTCHA_CHOICES
     cb = FakeCallback(f"cap:{wrong}", 111)
     await reg_h.process_captcha(cb, state)
     assert await state.get_state() is None
@@ -163,7 +169,7 @@ async def test_review_approve_mints_invite_and_swipes(services, session):
     cb = FakeCallback(f"rev:approve:{a.id[:8]}", user_id=111)
     await admin_h.cb_review_decision(cb, services)
 
-    # approved + single-use invite requested for that user
+    # approved + personal invite requested for that user
     assert services.notifications.approved
     assert services.notifications.approved[0][1] == "P1"
     reloaded = await services.applications.find_by_prefix(a.id[:8])

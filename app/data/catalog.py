@@ -35,7 +35,7 @@ def _r(items: tuple[tuple[str, str], ...]) -> tuple[Role, ...]:
 CATEGORIES: tuple[Category, ...] = (
     Category(
         id="programming",
-        title="Programming / Engineering",
+        title="Программирование",
         description="Геймплей, движок, бэкенд, инструменты, интеграция.",
         roles=_r(
             (
@@ -53,7 +53,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="game_design",
-        title="Game Design",
+        title="Гейм-дизайн",
         description="Механики, уровни, баланс, нарратив, player flow.",
         roles=_r(
             (
@@ -69,7 +69,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="art_2d",
-        title="2D Art",
+        title="2D-арт",
         description="Концепты, иллюстрации, UI, пиксель-арт, 2D-анимация.",
         roles=_r(
             (
@@ -86,7 +86,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="art_3d",
-        title="3D Art",
+        title="3D-арт",
         description="Моделинг, персонажи, окружение, скульпт, риг, VFX, свет.",
         roles=_r(
             (
@@ -105,7 +105,7 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="audio",
-        title="Audio",
+        title="Аудио",
         description="Музыка, звуковой дизайн, аудио-интеграция, озвучка.",
         roles=_r(
             (
@@ -119,8 +119,8 @@ CATEGORIES: tuple[Category, ...] = (
     ),
     Category(
         id="management",
-        title="Management / PM",
-        description="Координация команды, планирование, продюсирование.",
+        title="Менеджмент / Продюсирование",
+        description="Координация команды, планирование, продюсирование (PM, продюсер, тимлид).",
         roles=_r(
             (
                 ("project_manager", "Project Manager"),
@@ -198,13 +198,33 @@ EXPERIENCE_LEVELS: dict[str, str] = {
     "commercial": "Senior · 36+ мес.",
 }
 
+# Sentinel option offered on the engine/tools multi-selects: the player hasn't
+# worked with any yet. It's a real stored value (so the schema whitelist accepts
+# a "none yet" answer and admins see it on the card) but is EXCLUSIVE with real
+# picks — see toggle_engine/toggle_tool.
+NO_EXPERIENCE_OPTION = "Пока не работал(а)"
+
+# The free-text catch-all keeps the stable internal value "Other" (referenced by
+# the engine_other/tools_other gates and join_with_other), but is shown to users
+# under a friendlier label via OPTION_LABELS.
+OTHER_OPTION = "Other"
+OPTION_LABELS: dict[str, str] = {OTHER_OPTION: "Свой вариант"}
+
+
+def option_label(value: str) -> str:
+    """Human-facing button text for a multi-select value (value itself if no
+    friendlier label is defined)."""
+    return OPTION_LABELS.get(value, value)
+
+
 ENGINES: tuple[str, ...] = (
     "Unreal Engine",
     "Unity",
     "Godot",
     "GameMaker",
     "CryEngine",
-    "Other",
+    NO_EXPERIENCE_OPTION,
+    OTHER_OPTION,
 )
 
 TOOLS: tuple[str, ...] = (
@@ -217,7 +237,8 @@ TOOLS: tuple[str, ...] = (
     "Houdini",
     "Krita",
     "Aseprite",
-    "Other",
+    NO_EXPERIENCE_OPTION,
+    OTHER_OPTION,
 )
 
 MOTIVATIONS: tuple[str, ...] = (
@@ -229,9 +250,7 @@ MOTIVATIONS: tuple[str, ...] = (
     "Testing the idea",
 )
 
-CONSENT_ITEMS: tuple[str, ...] = (
-    "Понимаю, что это MVP-тест",
-    "Согласен с базовыми правилами",
-    "Готов предоставить evidence работы",
-    "Понимаю, что следующий шаг — ручная проверка",
-)
+# Version of the rules & privacy policy the consent step shows (docs/PRIVACY.md).
+# Bump it whenever the policy text changes: the accepted version is recorded in
+# the application's audit log, so we can always tell which terms a player agreed to.
+PRIVACY_VERSION = 1
