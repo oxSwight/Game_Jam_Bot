@@ -175,7 +175,44 @@ CATEGORY_OF_ROLE: dict[str, str] = {
 }
 
 # Backward-compatible id -> human title map used by status/summary rendering.
+# These stay the canonical (Russian) titles - what admins see and what's stored
+# in skill_category_title. User-facing display is localized via category_title().
 MAIN_CATEGORIES: dict[str, str] = {c.id: c.title for c in CATEGORIES}
+
+# English display titles/descriptions, keyed by category id. Only the button and
+# status/summary text is localized; the stored skill_category_title stays RU.
+CATEGORY_TITLE_EN: dict[str, str] = {
+    "programming": "Programming",
+    "game_design": "Game Design",
+    "art_2d": "2D Art",
+    "art_3d": "3D Art",
+    "audio": "Audio",
+    "management": "Management / Production",
+}
+CATEGORY_DESC_EN: dict[str, str] = {
+    "programming": "Gameplay, engine, backend, tools, integration.",
+    "game_design": "Mechanics, levels, balance, narrative, player flow.",
+    "art_2d": "Concepts, illustration, UI, pixel art, 2D animation.",
+    "art_3d": "Modeling, characters, environments, sculpting, rigging, VFX, lighting.",
+    "audio": "Music, sound design, audio integration, voice.",
+    "management": "Team coordination, planning, production (PM, producer, team lead).",
+}
+
+
+def category_title(category_id: str | None, lang: str = "ru") -> str:
+    """Localized category title (falls back to the canonical RU title / id)."""
+    if lang == "en":
+        return CATEGORY_TITLE_EN.get(category_id or "", MAIN_CATEGORIES.get(category_id or "", category_id or "-"))
+    return MAIN_CATEGORIES.get(category_id or "", category_id or "-")
+
+
+def category_description(category_id: str | None, lang: str = "ru") -> str:
+    """Localized category description (falls back to the catalog RU description)."""
+    category = CATEGORY_BY_ID.get(category_id or "")
+    ru = category.description if category else ""
+    if lang == "en":
+        return CATEGORY_DESC_EN.get(category_id or "", ru)
+    return ru
 
 
 def role_titles(role_ids: list[str]) -> list[str]:
@@ -214,6 +251,20 @@ EXPERIENCE_LEVELS: dict[str, str] = {
     "commercial": "Senior · 36+ мес.",
 }
 
+# English display labels for the experience levels (stored value is the key).
+EXPERIENCE_LEVELS_EN: dict[str, str] = {
+    "beginner": "Beginner · 0-6 mo.",
+    "intermediate": "Junior · 6-18 mo.",
+    "game_jam": "Middle · 18-36 mo.",
+    "commercial": "Senior · 36+ mo.",
+}
+
+
+def experience_label(key: str, lang: str = "ru") -> str:
+    """Localized experience-level label (falls back to the key)."""
+    table = EXPERIENCE_LEVELS_EN if lang == "en" else EXPERIENCE_LEVELS
+    return table.get(key, key)
+
 # The experience level that unlocks the beginner branch: an extra "strengths"
 # step (F, see STRENGTHS) shown only to applicants who mark themselves beginners
 # at step C. Every other level goes straight from tools to motivation.
@@ -231,10 +282,30 @@ NO_EXPERIENCE_OPTION = "Пока не работал(а)"
 OTHER_OPTION = "Other"
 OPTION_LABELS: dict[str, str] = {OTHER_OPTION: "Свой вариант"}
 
+# English display labels for values whose stored form is Russian (or the internal
+# "Other" token). Brand names like Unity/Blender/Figma are already English and
+# aren't listed - option_label falls back to the value itself. Stored values never
+# change; only the button/summary text is localized.
+OPTION_LABELS_EN: dict[str, str] = {
+    OTHER_OPTION: "Custom / other",
+    NO_EXPERIENCE_OPTION: "Haven't worked with any yet",
+    "Roblox / UEFN / другой редактор": "Roblox / UEFN / other editor",
+    "Tabletop / бумажные прототипы": "Tabletop / paper prototypes",
+    "Только документация": "Documentation only",
+    "Придумывать механику": "Inventing mechanics",
+    "Описывать правила": "Writing rules",
+    "Делать уровни": "Building levels",
+    "Балансировать": "Balancing",
+    "Писать квесты": "Writing quests",
+    "Прототипировать": "Prototyping",
+}
 
-def option_label(value: str) -> str:
-    """Human-facing button text for a multi-select value (value itself if no
-    friendlier label is defined)."""
+
+def option_label(value: str, lang: str = "ru") -> str:
+    """Human-facing button/summary text for a multi-select value (the value
+    itself if no friendlier label is defined for the language)."""
+    if lang == "en":
+        return OPTION_LABELS_EN.get(value, value)
     return OPTION_LABELS.get(value, value)
 
 
@@ -345,14 +416,18 @@ def tools_for(category_id: str | None) -> tuple[str, ...]:
 
 
 # Display label for the "haven't worked with any" sentinel. Its STORED value is
-# always NO_EXPERIENCE_OPTION; only the button text differs per step so it reads
-# naturally. Categories still on the default list keep the plain label unchanged.
-def engine_none_label(category_id: str | None) -> str:
-    return "Пока не работал(а) с движками" if category_id in ENGINES_BY_CATEGORY else NO_EXPERIENCE_OPTION
+# always NO_EXPERIENCE_OPTION; only the button text differs per step/language so
+# it reads naturally. Categories on the default list use the generic label.
+def engine_none_label(category_id: str | None, lang: str = "ru") -> str:
+    if category_id in ENGINES_BY_CATEGORY:
+        return "Haven't used any engines yet" if lang == "en" else "Пока не работал(а) с движками"
+    return option_label(NO_EXPERIENCE_OPTION, lang)
 
 
-def tools_none_label(category_id: str | None) -> str:
-    return "Пока не работал" if category_id in TOOLS_BY_CATEGORY else NO_EXPERIENCE_OPTION
+def tools_none_label(category_id: str | None, lang: str = "ru") -> str:
+    if category_id in TOOLS_BY_CATEGORY:
+        return "Haven't used any tools yet" if lang == "en" else "Пока не работал"
+    return option_label(NO_EXPERIENCE_OPTION, lang)
 
 
 # Anti-forgery whitelist for the final payload: the union of every engine / tool
