@@ -6,14 +6,14 @@ be revisited.
 - **Alembic on startup.** `run_migrations()` runs `alembic upgrade head` in a
   worker thread (env.py drives the async engine via `asyncio.run`, which can't
   nest in the bot's loop). A pre-Alembic `players.db` (created by the old
-  `create_all`) is detected and *adopted* — missing tables created, `team_id`
-  added, then `alembic stamp head` — instead of failing on "table exists".
+  `create_all`) is detected and *adopted* - missing tables created, `team_id`
+  added, then `alembic stamp head` - instead of failing on "table exists".
   `init_db()` (create_all) is kept for the test fixtures only.
 
 - **Enums stay `(str, Enum)` with `values_callable`.** Ruff's UP042 suggests
   `StrEnum`; declined and ignored the rule. The existing value-serialization
   (lowercase values matching the partial unique index + server_default) is
-  delicate and already correct — not worth disturbing.
+  delicate and already correct - not worth disturbing.
 
 - **Scoring model.** `total_score` = sum of the five layer columns, treating
   unset layers as 0; `/leaderboard` excludes applications with no score at all
@@ -42,7 +42,7 @@ be revisited.
 - **Join-request invites, not member_limit=1.** Invite links are minted with
   `creates_join_request=True`; `on_join_request` approves the join only when
   that user's own application is APPROVED. Possession of a URL no longer admits
-  anyone — identity is checked at the door, which also makes `/invite`
+  anyone - identity is checked at the door, which also makes `/invite`
   (self-service re-issue) safe to expose.
 
 - **`/withdraw` = right to erasure.** It hard-deletes the User row and all
@@ -59,7 +59,7 @@ be revisited.
 
 - **Admin decisions are conditional UPDATEs.** `update_status(...,
   expected_status=PENDING_REVIEW)` matches zero rows if another admin already
-  decided — no double approval, no second invite.
+  decided - no double approval, no second invite.
 
 - **Secrets & logs.** `POSTGRES_PASSWORD` is compose-required (no default);
   Telegram ids stay out of INFO logs; audit `details` record *which* contact

@@ -65,7 +65,7 @@ async def test_second_decision_on_same_card_loses(services, session):
     )
     assert first is not None
 
-    # Second admin raced on the same pending card — conditional UPDATE matches
+    # Second admin raced on the same pending card - conditional UPDATE matches
     # zero rows, so no second decision (and no second invite) happens.
     second = await services.applications.update_status(
         read.id,
@@ -123,7 +123,7 @@ async def test_submit_refused_when_queue_filled_mid_form(services, session, monk
         await services.applications.submit_registration(
             make_payload(telegram_id=901, nickname="Late", email="late@x.com")
         )
-    # refused submit leaves no side effects — not even a user row
+    # refused submit leaves no side effects - not even a user row
     assert await services.users.get_by_telegram_id(901) is None
 
 

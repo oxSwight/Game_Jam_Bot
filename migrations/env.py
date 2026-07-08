@@ -1,4 +1,4 @@
-"""Alembic environment — async-aware, driven by app settings.
+"""Alembic environment - async-aware, driven by app settings.
 
 Reads the database URL from ``app.core.config`` (not alembic.ini) so migrations
 always target the same database the bot uses, and runs through the SQLAlchemy
@@ -20,7 +20,7 @@ from app.models.base import Base
 
 config = context.config
 # When Alembic is run from the CLI, honour alembic.ini's logging config. When the
-# bot invokes migrations in-process (run_migrations sets this flag), skip it —
+# bot invokes migrations in-process (run_migrations sets this flag), skip it -
 # fileConfig would disable the app's already-configured loggers and silence the
 # bot's own logging after startup.
 if config.config_file_name is not None and not os.getenv("ALEMBIC_SKIP_LOGGING_CONFIG"):

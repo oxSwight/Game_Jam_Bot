@@ -1,6 +1,6 @@
 """initial schema
 
-Gateway bot: users, applications and an audit log. No events/teams/scoring —
+Gateway bot: users, applications and an audit log. No events/teams/scoring -
 the bot's sole job is to vet sign-ups and mint group invites.
 
 Revision ID: 5a2f87ea5d0c

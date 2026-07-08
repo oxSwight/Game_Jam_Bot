@@ -121,7 +121,7 @@ async def test_reregistration_keeps_each_applications_own_contact(services, sess
 
     second = await _submit(services, session, telegram_id=777, nickname="NewNick", email="new@x.com")
 
-    # Export sees BOTH applications, each with its OWN snapshot — not both rewritten
+    # Export sees BOTH applications, each with its OWN snapshot - not both rewritten
     # to the latest values (the reported bug).
     rows = await services.applications.list_all_with_users()
     by_id = {a.id: a for a in rows}

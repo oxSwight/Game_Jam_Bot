@@ -350,7 +350,7 @@ async def test_submit_duplicate_nickname_recovers(services, session):
     assert await state.get_state() == reg_h.RegistrationStates.nickname.state
     assert await services.users.get_profile(222) is None
 
-    # They re-enter a free nickname, then email — the flow jumps straight back to
+    # They re-enter a free nickname, then email - the flow jumps straight back to
     # confirm (category/roles preserved), and the retried submit now succeeds.
     await reg_h.process_nickname(FakeMessage("Alex2", user_id=222), state, services)
     await reg_h.process_email(FakeMessage("bob@x.com", user_id=222), state, services)

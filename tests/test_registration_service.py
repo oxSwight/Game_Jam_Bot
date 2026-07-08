@@ -71,7 +71,7 @@ async def test_reject_then_reregister_allowed(services, session):
     )
     await session.commit()
 
-    # Rejected no longer counts as active — a fresh submission is allowed.
+    # Rejected no longer counts as active - a fresh submission is allowed.
     assert not await services.applications.has_active_application(1001)
     app2 = await services.applications.submit_registration(make_payload())
     await session.commit()
@@ -84,7 +84,7 @@ async def test_withdraw_erases_all_user_data(services, session):
 
     assert await services.applications.erase_user_data(1001) is True
     await session.commit()
-    # Right to erasure: not just the application — the user row (nickname,
+    # Right to erasure: not just the application - the user row (nickname,
     # email, username) is gone too, so nothing identifying remains.
     assert await services.applications.has_active_application(1001) is False
     assert await services.users.get_by_telegram_id(1001) is None

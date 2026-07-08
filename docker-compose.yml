@@ -1,4 +1,4 @@
-# POSTGRES_PASSWORD comes from .env (compose interpolates it) — no default on
+# POSTGRES_PASSWORD comes from .env (compose interpolates it) - no default on
 # purpose, so a deployment can't silently run on a well-known password.
 services:
   bot:

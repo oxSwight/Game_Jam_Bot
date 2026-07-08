@@ -21,7 +21,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 # Self-contained copy of the category blocks (app.data.catalog.CATEGORY_ID_PREFIX
-# / PLAYER_CODE_WIDTH at the time of this revision) — migrations must not track
+# / PLAYER_CODE_WIDTH at the time of this revision) - migrations must not track
 # later catalog edits.
 _CATEGORY_PREFIX = {
     "programming": 1,

@@ -13,7 +13,7 @@ exclude = ["migrations/versions", ".venv"]
 select = ["E", "F", "I", "W", "UP", "B"]
 # E501: line length handled by formatter. UP042: the status enums intentionally
 # subclass (str, Enum) with a custom values_callable; migrating to StrEnum would
-# disturb the carefully-tuned value serialization — see DECISIONS.md.
+# disturb the carefully-tuned value serialization - see DECISIONS.md.
 ignore = ["E501", "UP042"]
 
 [tool.ruff.lint.per-file-ignores]

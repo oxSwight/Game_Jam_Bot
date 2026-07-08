@@ -2,7 +2,7 @@
 
 Every test runs against a fresh in-memory SQLite database (StaticPool so the
 single connection is shared across the async session), built from the ORM
-metadata. This keeps tests fast and fully isolated — no external Redis/Postgres.
+metadata. This keeps tests fast and fully isolated - no external Redis/Postgres.
 """
 
 import os
