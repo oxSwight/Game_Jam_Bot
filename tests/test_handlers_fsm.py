@@ -281,6 +281,21 @@ async def test_language_set(services, session):
     assert user.language == "en"
 
 
+async def test_language_set_shows_next_step(services, session):
+    # A brand-new user picking a language must not dead-end on a bare
+    # "language switched": the landing now guides them into registration.
+    cb = FakeCallback("lang:en", user_id=111)
+    await reg_h.set_language(cb, services)
+    assert any("/register" in a for a in cb.message.answers)
+
+
+async def test_start_registration_button_opens_captcha(services, session):
+    state = make_state(111)
+    cb = FakeCallback("reg:start", user_id=111)
+    await reg_h.cb_start_registration(cb, state, services)
+    assert await state.get_state() == reg_h.RegistrationStates.captcha.state
+
+
 # --------------- free-text FSM guards & cancels --------------- #
 def test_not_command_filter():
     from app.handlers.registration import not_command

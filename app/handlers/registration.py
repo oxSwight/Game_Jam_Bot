@@ -33,6 +33,7 @@ from app.keyboards.registration import (
     language_keyboard,
     motivation_keyboard,
     roles_keyboard,
+    start_registration_keyboard,
     tools_keyboard,
 )
 from app.schemas.registration import EmailStep, NicknameStep, RegistrationCreate
@@ -119,6 +120,34 @@ async def _go_to_motivation(message: Message, state: FSMContext) -> None:
     )
 
 
+async def _landing_message(
+    services: ServiceContainer, telegram_id: int, lang: str
+) -> tuple[str, bool]:
+    """The right '/start-style' greeting for a user, plus whether a fresh
+    registration is available to them (drives the inline Start button). Mirrors
+    the three cases cmd_start distinguishes: an active application, a known
+    returning player, or a brand-new contact."""
+    profile = await services.users.get_profile(telegram_id)
+    if profile:
+        status = _status_label(profile.status, lang)
+        text = t(
+            "already_registered",
+            lang,
+            nickname=safe(profile.nickname),
+            status=safe(status),
+            id=safe(str(profile.player_code) if profile.player_code else profile.id),
+        )
+        return text, False
+
+    # Known returning player (registered before, no active application now) — the
+    # bot remembers them even if they left the group. Greet them back by name.
+    user = await services.users.get_by_telegram_id(telegram_id)
+    if user and user.nickname:
+        return t("welcome_back", lang, nickname=safe(user.nickname)), True
+
+    return t("welcome", lang), True
+
+
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
@@ -127,35 +156,43 @@ async def cmd_start(
     lang: str = "ru",
 ) -> None:
     await state.clear()
-    profile = await services.users.get_profile(message.from_user.id)
-    if profile:
-        status = _status_label(profile.status, lang)
-        await message.answer(
-            t(
-                "already_registered",
-                lang,
-                nickname=safe(profile.nickname),
-                status=safe(status),
-                id=safe(str(profile.player_code) if profile.player_code else profile.id),
-            )
-        )
-        return
-
-    # Known returning player (registered before, no active application now) — the
-    # bot remembers them even if they left the group. Greet them back by name.
-    user = await services.users.get_by_telegram_id(message.from_user.id)
-    if user and user.nickname:
-        await message.answer(t("welcome_back", lang, nickname=safe(user.nickname)))
-        return
+    text, _ = await _landing_message(services, message.from_user.id, lang)
 
     # First contact: greet in the region-detected language, and offer an explicit
     # RU/EN switch so anyone the auto-detection guessed wrong can fix it in a tap.
     # Returning users who already chose a language aren't nagged with the picker.
     saved_lang = await services.users.get_language(message.from_user.id)
-    if saved_lang:
-        await message.answer(t("welcome", lang))
-    else:
-        await message.answer(t("welcome", lang), reply_markup=language_keyboard())
+    await message.answer(
+        text,
+        reply_markup=language_keyboard() if not saved_lang else None,
+    )
+
+
+async def _open_registration(answer, telegram_id: int, state: FSMContext, services, lang: str) -> None:
+    """Shared entry to the sign-up funnel used by both /register and the inline
+    'Start registration' button: reset any half-finished flow, enforce the
+    anti-spam gates, then open the CAPTCHA. ``answer`` is the send-a-message
+    coroutine of whichever event triggered us (message or callback message)."""
+    await state.clear()
+    if await services.applications.has_active_application(telegram_id):
+        await answer(t("active_application_exists", lang))
+        return
+
+    # Queue cap: refuse new sign-ups once the pending backlog is full, so a flood
+    # can't grow the review queue without bound.
+    pending = await services.applications.count_pending()
+    if pending >= get_settings().pending_cap:
+        await answer(t("queue_full", lang))
+        return
+
+    # Anti-bot gate: the user must tap the named emoji before the form opens.
+    options, target_index = build_captcha()
+    await state.set_state(RegistrationStates.captcha)
+    await state.update_data(captcha_answer=target_index)
+    await answer(
+        t("captcha_prompt", lang, target=options[target_index]),
+        reply_markup=captcha_keyboard(options),
+    )
 
 
 @router.message(Command("register"))
@@ -166,26 +203,27 @@ async def cmd_register(
     services: ServiceContainer,
     lang: str = "ru",
 ) -> None:
-    await state.clear()
-    if await services.applications.has_active_application(message.from_user.id):
-        await message.answer(t("active_application_exists", lang))
-        return
+    await _open_registration(message.answer, message.from_user.id, state, services, lang)
 
-    # Queue cap: refuse new sign-ups once the pending backlog is full, so a flood
-    # can't grow the review queue without bound.
-    pending = await services.applications.count_pending()
-    if pending >= get_settings().pending_cap:
-        await message.answer(t("queue_full", lang))
-        return
 
-    # Anti-bot gate: the user must tap the named emoji before the form opens.
-    options, target_index = build_captcha()
-    await state.set_state(RegistrationStates.captcha)
-    await state.update_data(captcha_answer=target_index)
-    await message.answer(
-        t("captcha_prompt", lang, target=options[target_index]),
-        reply_markup=captcha_keyboard(options),
+@router.callback_query(F.data == "reg:start")
+async def cb_start_registration(
+    callback: CallbackQuery,
+    state: FSMContext,
+    services: ServiceContainer,
+    lang: str = "ru",
+) -> None:
+    """The 'Start registration' button on the /start / post-language landing.
+    Drops its own keyboard (so it can't be re-tapped into a second flow) and
+    opens the same CAPTCHA gate as /register."""
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        logger.debug("could not clear start-registration button", exc_info=True)
+    await _open_registration(
+        callback.message.answer, callback.from_user.id, state, services, lang
     )
+    await callback.answer()
 
 
 @router.callback_query(RegistrationStates.captcha, F.data.startswith("cap:"))
@@ -360,7 +398,15 @@ async def cmd_language(message: Message, lang: str = "ru") -> None:
 async def set_language(callback: CallbackQuery, services: ServiceContainer) -> None:
     code = callback.data.split(":", 1)[1]
     await services.users.set_language(callback.from_user.id, code)
-    await callback.message.edit_text(t("language_set", code))
+    # Don't dead-end on a bare "language switched": re-render the landing in the
+    # chosen language with a concrete next step (and a one-tap Start button for
+    # users who can register), so the user knows where to go instead of being
+    # left staring at a confirmation that overwrote the welcome text.
+    text, can_register = await _landing_message(services, callback.from_user.id, code)
+    await callback.message.edit_text(
+        f"{t('language_set', code)}\n\n{text}",
+        reply_markup=start_registration_keyboard(code) if can_register else None,
+    )
     await callback.answer()
 
 

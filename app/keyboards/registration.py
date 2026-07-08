@@ -31,6 +31,24 @@ def language_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+_START_REGISTRATION_LABELS = {
+    "ru": "▶️ Начать регистрацию",
+    "en": "▶️ Start registration",
+}
+
+
+def start_registration_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    """One-tap entry into the sign-up funnel. Offered on the /start and
+    post-language landings so a new user isn't left having to discover /register
+    on their own (callback fires cb_start_registration)."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=_START_REGISTRATION_LABELS.get(lang, _START_REGISTRATION_LABELS["ru"]),
+        callback_data="reg:start",
+    )
+    return builder.as_markup()
+
+
 def captcha_keyboard(options: list[str]) -> InlineKeyboardMarkup:
     """Emoji buttons for the anti-bot gate, four per row. Each button carries
     only its index in callback_data (cap:<i>), never the emoji itself."""
