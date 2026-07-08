@@ -3,9 +3,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.data.catalog import (
     ALL_ENGINES,
     ALL_TOOLS,
+    BEGINNER_EXPERIENCE,
     CATEGORY_BY_ID,
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
+    STRENGTHS,
     role_titles,
 )
 
@@ -108,6 +110,9 @@ class RegistrationCreate(BaseModel):
     tools: list[str] = Field(min_length=1)
     tools_other: str | None = None
     motivations: list[str] = Field(min_length=1)
+    # Beginner branch only (step F). Optional so non-beginner payloads - which
+    # never collect it - validate with an empty list.
+    strengths: list[str] = Field(default_factory=list)
     consent_accepted: bool = True
 
     @field_validator("main_category")
@@ -151,10 +156,26 @@ class RegistrationCreate(BaseModel):
             raise ValueError(f"invalid motivations: {', '.join(invalid)}")
         return value
 
+    @field_validator("strengths")
+    @classmethod
+    def validate_strengths(cls, value: list[str]) -> list[str]:
+        invalid = [item for item in value if item not in STRENGTHS]
+        if invalid:
+            raise ValueError(f"invalid strengths: {', '.join(invalid)}")
+        return value
+
     @classmethod
     def from_fsm_data(cls, data: dict, telegram_id: int, telegram_username: str | None) -> "RegistrationCreate":
         category_id = data["category_id"]
         role_ids = list(data.get("roles", []))
+        # Strengths belong to the beginner branch only; force them empty for any
+        # other level so a stale FSM value (e.g. from an edit that switched level)
+        # can't leak onto a non-beginner application.
+        strengths = (
+            list(data.get("strengths", []))
+            if data.get("experience_level") == BEGINNER_EXPERIENCE
+            else []
+        )
         return cls(
             identity=TelegramIdentity(telegram_id=telegram_id, telegram_username=telegram_username),
             nickname=data["nickname"],
@@ -172,6 +193,7 @@ class RegistrationCreate(BaseModel):
             tools=data.get("tools", []),
             tools_other=data.get("tools_other"),
             motivations=data.get("motivations", []),
+            strengths=strengths,
             consent_accepted=bool(data.get("consent", True)),
         )
 
@@ -194,5 +216,6 @@ class ApplicationRead(BaseModel):
     tools: list[str]
     tools_other: str | None = None
     motivations: list[str]
+    strengths: list[str] = []
     telegram_id: int | None = None
     telegram_username: str | None = None

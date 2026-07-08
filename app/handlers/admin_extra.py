@@ -104,7 +104,8 @@ async def cmd_export(message: Message, services: ServiceContainer) -> None:
         [
             "player_code", "id", "status", "is_active",
             "nickname", "email", "telegram_id", "telegram_username",
-            "category", "roles", "experience", "engine", "tools", "motivations",
+            "category", "roles", "experience", "engine", "tools",
+            "strengths", "motivations",
             "created_at",
         ]
     )
@@ -125,6 +126,7 @@ async def cmd_export(message: Message, services: ServiceContainer) -> None:
             EXPERIENCE_LEVELS.get(app.experience_level, app.experience_level),
             _blank_empty_multiselect(join_with_other(app.engine, app.engine_other)),
             _blank_empty_multiselect(join_with_other(app.tools, app.tools_other)),
+            "; ".join(app.strengths),
             "; ".join(app.motivations),
             app.created_at.isoformat() if app.created_at else "",
         ]

@@ -149,6 +149,33 @@ def test_payload_accepts_catalog_values():
     assert payload.engine == ["Unity"]
 
 
+def test_strengths_kept_for_beginner_dropped_otherwise():
+    # Beginner keeps their step-F picks...
+    beginner = RegistrationCreate.from_fsm_data(
+        data=_fsm_data(experience_level="beginner", strengths=["Придумывать механику"]),
+        telegram_id=1,
+        telegram_username="u",
+    )
+    assert beginner.strengths == ["Придумывать механику"]
+
+    # ...but a stale strengths value can never leak onto a non-beginner payload.
+    senior = RegistrationCreate.from_fsm_data(
+        data=_fsm_data(experience_level="commercial", strengths=["Придумывать механику"]),
+        telegram_id=1,
+        telegram_username="u",
+    )
+    assert senior.strengths == []
+
+
+def test_payload_rejects_forged_strengths():
+    with pytest.raises(ValidationError):
+        RegistrationCreate.from_fsm_data(
+            data=_fsm_data(experience_level="beginner", strengths=["Взламывать сервера"]),
+            telegram_id=1,
+            telegram_username="u",
+        )
+
+
 # ------------------- right to erasure ------------------- #
 async def test_erase_removes_user_applications_and_logs(services, session):
     await _submit(services, session)

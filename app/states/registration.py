@@ -13,5 +13,6 @@ class RegistrationStates(StatesGroup):
     engine_other = State()
     tools = State()
     tools_other = State()
+    strengths = State()     # step F: beginner branch only (experience == beginner)
     motivation = State()
     confirm = State()

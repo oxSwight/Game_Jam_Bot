@@ -64,6 +64,9 @@ class Application(Base, TimestampMixin):
     tools: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     tools_other: Mapped[str | None] = mapped_column(Text, nullable=True)
     motivations: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    # Step F (beginner branch): what the applicant is best at. Empty for every
+    # other experience level, which never sees the strengths step.
+    strengths: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     consent_accepted: Mapped[bool] = mapped_column(default=True, server_default="1")
 
     status: Mapped[ApplicationStatus] = mapped_column(

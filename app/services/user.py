@@ -63,6 +63,7 @@ class UserService(BaseService):
             tools=application.tools,
             tools_other=application.tools_other,
             motivations=application.motivations,
+            strengths=application.strengths,
             telegram_id=user.telegram_id,
             telegram_username=user.telegram_username,
         )

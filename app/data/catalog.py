@@ -214,6 +214,11 @@ EXPERIENCE_LEVELS: dict[str, str] = {
     "commercial": "Senior · 36+ мес.",
 }
 
+# The experience level that unlocks the beginner branch: an extra "strengths"
+# step (F, see STRENGTHS) shown only to applicants who mark themselves beginners
+# at step C. Every other level goes straight from tools to motivation.
+BEGINNER_EXPERIENCE = "beginner"
+
 # Sentinel option offered on the engine/tools multi-selects: the player hasn't
 # worked with any yet. It's a real stored value (so the schema whitelist accepts
 # a "none yet" answer and admins see it on the card) but is EXCLUSIVE with real
@@ -368,6 +373,18 @@ MOTIVATIONS: tuple[str, ...] = (
     "Finding work",
     "Interest in the project",
     "Testing the idea",
+)
+
+# Step F (Сильные стороны) - beginner branch only. Multi-select: what the
+# applicant is best at. Persisted on the application like motivations; stays
+# empty for every other experience level (they never reach this step).
+STRENGTHS: tuple[str, ...] = (
+    "Придумывать механику",
+    "Описывать правила",
+    "Делать уровни",
+    "Балансировать",
+    "Писать квесты",
+    "Прототипировать",
 )
 
 # Version of the rules & privacy policy the consent step shows (docs/PRIVACY.md).

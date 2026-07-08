@@ -427,3 +427,76 @@ async def test_engine_other_rejects_overlong_text():
     await reg_h.process_engine_other(FakeMessage("x" * 200), state)
     assert (await state.get_data()).get("engine_other") is None
     assert await state.get_state() == reg_h.RegistrationStates.engine_other.state
+
+
+# --------------- beginner branch: strengths step (F) --------------- #
+async def _seed_tools_state(state, *, experience_level, category_id, tools):
+    """Put the FSM at the tools step with a full, valid set of prior answers."""
+    await state.set_state(reg_h.RegistrationStates.tools)
+    await state.update_data(
+        nickname="Beg",
+        email="beg@x.com",
+        category_id=category_id,
+        category_title="Cat",
+        roles=["game_designer" if category_id == "game_design" else "gameplay_programmer"],
+        experience_level=experience_level,
+        engine=["Unity"],
+        engine_other=None,
+        tools=tools,
+        tools_other=None,
+        motivations=[],
+        strengths=[],
+        consent=True,
+    )
+
+
+async def test_beginner_tools_done_opens_strengths_step(services):
+    # A beginner gets the extra strengths step (F) after tools.
+    state = make_state(111)
+    await _seed_tools_state(
+        state, experience_level="beginner", category_id="game_design", tools=["Miro"]
+    )
+    await reg_h.toggle_tool(FakeCallback("tool:done", 111), state)
+    assert await state.get_state() == reg_h.RegistrationStates.strengths.state
+
+
+async def test_non_beginner_tools_done_skips_strengths(services):
+    # Any other experience level goes straight from tools to motivation.
+    state = make_state(111)
+    await _seed_tools_state(
+        state, experience_level="commercial", category_id="programming", tools=["C++"]
+    )
+    await reg_h.toggle_tool(FakeCallback("tool:done", 111), state)
+    assert await state.get_state() == reg_h.RegistrationStates.motivation.state
+
+
+async def test_beginner_strengths_are_stored(services, session):
+    state = make_state(111)
+    await _seed_tools_state(
+        state, experience_level="beginner", category_id="game_design", tools=["Miro"]
+    )
+    await reg_h.toggle_tool(FakeCallback("tool:done", 111), state)
+
+    # Pick a strength, finish step F -> lands on motivation.
+    await reg_h.toggle_strength(FakeCallback("strg:Придумывать механику", 111), state)
+    await reg_h.toggle_strength(FakeCallback("strg:done", 111), state)
+    assert await state.get_state() == reg_h.RegistrationStates.motivation.state
+
+    await reg_h.toggle_motivation(FakeCallback("mot:Learning", 111), state)
+    await reg_h.toggle_motivation(FakeCallback("mot:done", 111), state)
+    await reg_h.confirm_submit(FakeCallback("confirm:submit", 111), state, services)
+
+    profile = await services.users.get_profile(111)
+    assert profile is not None
+    assert profile.strengths == ["Придумывать механику"]
+
+
+async def test_strengths_empty_selection_blocks_done(services):
+    state = make_state(111)
+    await state.set_state(reg_h.RegistrationStates.strengths)
+    await state.update_data(experience_level="beginner", strengths=[])
+    cb = FakeCallback("strg:done", 111)
+    await reg_h.toggle_strength(cb, state)
+    # Still on the strengths step, prompted to pick at least one.
+    assert await state.get_state() == reg_h.RegistrationStates.strengths.state
+    assert any("хотя бы один" in (t or "").lower() for t in cb.answered)

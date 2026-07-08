@@ -12,6 +12,7 @@ from app.data.catalog import (
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
     NO_EXPERIENCE_OPTION,
+    STRENGTHS,
     engine_none_label,
     engines_for,
     option_label,
@@ -202,15 +203,33 @@ def tools_keyboard(
     return builder.as_markup()
 
 
-def motivation_keyboard(selected: set[str]) -> InlineKeyboardMarkup:
+def strengths_keyboard(selected: set[str]) -> InlineKeyboardMarkup:
+    """Step F (beginner branch): multi-select of what the applicant is best at.
+    Its "Назад" returns to the tools step, the step right before it."""
+    builder = InlineKeyboardBuilder()
+    for item in STRENGTHS:
+        prefix = "✓ " if item in selected else ""
+        builder.button(text=f"{prefix}{item}", callback_data=f"strg:{item}")
+    builder.adjust(1)
+    builder.row(
+        InlineKeyboardButton(text="Готово", callback_data="strg:done"),
+        InlineKeyboardButton(text="Назад", callback_data="nav:back_tools"),
+    )
+    return builder.as_markup()
+
+
+def motivation_keyboard(selected: set[str], *, beginner: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for item in MOTIVATIONS:
         prefix = "✓ " if item in selected else ""
         builder.button(text=f"{prefix}{item}", callback_data=f"mot:{item}")
     builder.adjust(1)
+    # Beginners have the extra strengths step (F) between tools and motivation,
+    # so their "Назад" returns there; everyone else goes back to tools.
+    back = "nav:back_strengths" if beginner else "nav:back_tools"
     builder.row(
         InlineKeyboardButton(text="Готово", callback_data="mot:done"),
-        InlineKeyboardButton(text="Назад", callback_data="nav:back_tools"),
+        InlineKeyboardButton(text="Назад", callback_data=back),
     )
     return builder.as_markup()
 

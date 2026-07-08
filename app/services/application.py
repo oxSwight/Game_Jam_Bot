@@ -75,6 +75,7 @@ class ApplicationService(BaseService):
             tools=payload.tools,
             tools_other=payload.tools_other,
             motivations=payload.motivations,
+            strengths=payload.strengths,
             consent_accepted=payload.consent_accepted,
             status=ApplicationStatus.PENDING_REVIEW,
         )
@@ -264,6 +265,7 @@ class ApplicationService(BaseService):
         application.tools = payload.tools
         application.tools_other = payload.tools_other
         application.motivations = payload.motivations
+        application.strengths = payload.strengths
 
         self.session.add(
             Log(

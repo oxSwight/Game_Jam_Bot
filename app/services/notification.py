@@ -20,6 +20,13 @@ def render_application_card(application: ApplicationRead) -> str:
     experience = EXPERIENCE_LEVELS.get(
         application.experience_level, application.experience_level
     )
+    # Strengths (step F) only exist for the beginner branch; include the line
+    # only when there's something to show.
+    strengths_line = (
+        f"Сильные стороны: {', '.join(safe(s) for s in application.strengths)}\n"
+        if application.strengths
+        else ""
+    )
     return (
         f"ID игрока: <code>{application.player_code or '-'}</code>\n"
         f"Telegram: @{safe(application.telegram_username) or '-'} ({application.telegram_id})\n"
@@ -30,6 +37,7 @@ def render_application_card(application: ApplicationRead) -> str:
         f"Опыт: {safe(experience)}\n"
         f"Движок: {join_with_other(application.engine, application.engine_other)}\n"
         f"Инструменты: {join_with_other(application.tools, application.tools_other)}\n"
+        f"{strengths_line}"
         f"Мотивация: {', '.join(safe(m) for m in application.motivations)}"
     )
 

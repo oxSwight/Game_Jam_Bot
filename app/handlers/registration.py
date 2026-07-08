@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.i18n import normalize_lang, t
 from app.data.captcha import build_captcha
 from app.data.catalog import (
+    BEGINNER_EXPERIENCE,
     CATEGORY_BY_ID,
     EXPERIENCE_LEVELS,
     MAIN_CATEGORIES,
@@ -34,6 +35,7 @@ from app.keyboards.registration import (
     motivation_keyboard,
     roles_keyboard,
     start_registration_keyboard,
+    strengths_keyboard,
     tools_keyboard,
 )
 from app.schemas.registration import EmailStep, NicknameStep, RegistrationCreate
@@ -99,6 +101,19 @@ def _tools_prompt(category_id: str | None) -> str:
     return _TOOLS_PROMPTS.get(category_id or "", _DEFAULT_TOOLS_PROMPT)
 
 
+# Step F - beginner branch only: what the applicant is best at.
+_STRENGTHS_PROMPT = (
+    "<b>Шаг F - Сильные стороны</b>\n\n"
+    "Что вы умеете делать лучше всего? (можно несколько):"
+)
+
+
+def _is_beginner(data: dict) -> bool:
+    """True when the applicant marked themselves a beginner at step C - the gate
+    for the extra strengths step (F) between tools and motivation."""
+    return data.get("experience_level") == BEGINNER_EXPERIENCE
+
+
 def not_command(message: Message) -> bool:
     """Filter: a message that is NOT a slash-command. Applied to free-text FSM
     steps so a command (e.g. /language) typed mid-flow isn't swallowed as input -
@@ -146,9 +161,38 @@ def _build_summary(data: dict) -> str:
         f"<b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '-'))}",
         f"<b>Движок:</b> {engine}",
         f"<b>Инструменты:</b> {tools}",
-        f"<b>Мотивация:</b> {motivations}",
     ]
+    # Strengths (step F) only exist for the beginner branch - show the line only
+    # when there's something to show.
+    strengths = data.get("strengths", [])
+    if strengths:
+        lines.append(f"<b>Сильные стороны:</b> {', '.join(safe(s) for s in strengths)}")
+    lines.append(f"<b>Мотивация:</b> {motivations}")
     return "\n".join(lines)
+
+
+async def _after_tools(message: Message, state: FSMContext) -> None:
+    """Route after the tools step: beginners get the extra strengths step (F);
+    everyone else goes straight to motivation."""
+    data = await state.get_data()
+    if _is_beginner(data):
+        await _go_to_strengths(message, state)
+    else:
+        await _go_to_motivation(message, state)
+
+
+async def _go_to_strengths(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    # Fresh registration starts with nothing selected; an edit keeps the current
+    # picks so they come pre-checked and the player only changes what they want.
+    if not data.get("edit_mode"):
+        await state.update_data(strengths=[])
+        data = await state.get_data()
+    await state.set_state(RegistrationStates.strengths)
+    await message.answer(
+        _STRENGTHS_PROMPT,
+        reply_markup=strengths_keyboard(set(data.get("strengths", []))),
+    )
 
 
 async def _go_to_motivation(message: Message, state: FSMContext) -> None:
@@ -162,7 +206,9 @@ async def _go_to_motivation(message: Message, state: FSMContext) -> None:
     await message.answer(
         "<b>Шаг G - Мотивация</b>\n\n"
         "Что вас привлекает? (можно несколько):",
-        reply_markup=motivation_keyboard(set(data.get("motivations", []))),
+        reply_markup=motivation_keyboard(
+            set(data.get("motivations", [])), beginner=_is_beginner(data)
+        ),
     )
 
 
@@ -302,6 +348,13 @@ async def cmd_status(message: Message, services: ServiceContainer, lang: str = "
         return
 
     membership = "в группе" if profile.is_active else "не в группе"
+    # Strengths (step F) only exist for the beginner branch; show the line only
+    # when there's something to show.
+    strengths_line = (
+        f"Сильные стороны: {', '.join(safe(s) for s in profile.strengths)}\n"
+        if profile.strengths
+        else ""
+    )
     await message.answer(
         f"<b>Ваш профиль</b>\n\n"
         f"ID игрока: <code>{profile.player_code or '-'}</code>\n"
@@ -312,6 +365,7 @@ async def cmd_status(message: Message, services: ServiceContainer, lang: str = "
         f"Опыт: {safe(EXPERIENCE_LEVELS.get(profile.experience_level, profile.experience_level))}\n"
         f"Движок: {join_with_other(profile.engine, profile.engine_other)}\n"
         f"Инструменты: {join_with_other(profile.tools, profile.tools_other)}\n"
+        f"{strengths_line}"
         f"Мотивация: {', '.join(safe(m) for m in profile.motivations)}\n"
         f"Статус заявки: {safe(_status_label(profile.status, lang))}\n"
         f"Членство: {membership}",
@@ -528,6 +582,7 @@ async def edit_pick_skills(
         tools=list(profile.tools),
         tools_other=profile.tools_other,
         motivations=list(profile.motivations),
+        strengths=list(profile.strengths),
         consent=True,
     )
     await callback.message.edit_text(
@@ -908,7 +963,7 @@ async def toggle_tool(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.message.edit_text("Укажите другие инструменты (текстом):")
             await callback.answer()
             return
-        await _go_to_motivation(callback.message, state)
+        await _after_tools(callback.message, state)
         await callback.answer()
         return
 
@@ -946,7 +1001,32 @@ async def process_tools_other(
         await message.answer(f"Слишком длинно (максимум {OTHER_TEXT_MAX} символов). Короче:")
         return
     await state.update_data(tools_other=text)
-    await _go_to_motivation(message, state)
+    await _after_tools(message, state)
+
+
+@router.callback_query(RegistrationStates.strengths, F.data.startswith("strg:"))
+async def toggle_strength(callback: CallbackQuery, state: FSMContext) -> None:
+    action = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    selected: list[str] = list(data.get("strengths", []))
+
+    if action == "done":
+        if not selected:
+            await callback.answer("Выберите хотя бы один пункт", show_alert=True)
+            return
+        await _go_to_motivation(callback.message, state)
+        await callback.answer()
+        return
+
+    if action in selected:
+        selected.remove(action)
+    else:
+        selected.append(action)
+    await state.update_data(strengths=selected)
+    await callback.message.edit_reply_markup(
+        reply_markup=strengths_keyboard(set(selected)),
+    )
+    await callback.answer()
 
 
 @router.callback_query(RegistrationStates.motivation, F.data.startswith("mot:"))
@@ -974,7 +1054,7 @@ async def toggle_motivation(callback: CallbackQuery, state: FSMContext) -> None:
         selected.append(action)
     await state.update_data(motivations=selected)
     await callback.message.edit_reply_markup(
-        reply_markup=motivation_keyboard(set(selected)),
+        reply_markup=motivation_keyboard(set(selected), beginner=_is_beginner(data)),
     )
     await callback.answer()
 
@@ -1154,5 +1234,16 @@ async def nav_back_tools(callback: CallbackQuery, state: FSMContext) -> None:
         reply_markup=tools_keyboard(
             selected, category_id=category_id, has_other="Other" in selected
         ),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "nav:back_strengths")
+async def nav_back_strengths(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.set_state(RegistrationStates.strengths)
+    await callback.message.edit_text(
+        _STRENGTHS_PROMPT,
+        reply_markup=strengths_keyboard(set(data.get("strengths", []))),
     )
     await callback.answer()
