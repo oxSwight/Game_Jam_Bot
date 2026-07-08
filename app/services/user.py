@@ -26,7 +26,7 @@ class UserService(BaseService):
 
     async def set_active(self, telegram_id: int, active: bool) -> User | None:
         """Flip a known player's group-membership flag. Returns None (no-op) for an
-        unknown telegram_id — we don't create rows for random group joiners."""
+        unknown telegram_id - we don't create rows for random group joiners."""
         user = await self.users.get_by_telegram_id(telegram_id)
         if user is None:
             return None

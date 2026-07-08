@@ -5,7 +5,7 @@ from app.repositories.user import UserRepository
 
 
 class BaseService:
-    """Lightweight DI base — repositories are created per request session."""
+    """Lightweight DI base - repositories are created per request session."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session

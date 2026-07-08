@@ -28,7 +28,7 @@ class ApplicationService(BaseService):
         return application is not None
 
     async def has_approved_application(self, telegram_id: int) -> bool:
-        """True if the user's active application is APPROVED — the gate the
+        """True if the user's active application is APPROVED - the gate the
         join-request handler checks before letting anyone into the group."""
         user = await self.users.get_by_telegram_id(telegram_id)
         if not user:
@@ -120,7 +120,7 @@ class ApplicationService(BaseService):
             current = await self.applications.max_player_code_in_block(base, block)
             try:
                 # SAVEPOINT so a lost seeding race doesn't poison the outer
-                # transaction — we just retry the UPDATE against the winner's row.
+                # transaction - we just retry the UPDATE against the winner's row.
                 async with self.session.begin_nested():
                     self.session.add(
                         PlayerCodeCounter(category_id=category_id, last_code=current or base)
@@ -140,7 +140,7 @@ class ApplicationService(BaseService):
     ) -> Application | None:
         """Set an application's status; returns the application or None.
 
-        With ``expected_status`` the transition is a conditional UPDATE — it only
+        With ``expected_status`` the transition is a conditional UPDATE - it only
         succeeds if the row still holds that status. Two admins approving the same
         card concurrently therefore can't both win: the second UPDATE matches zero
         rows and returns None, and no second invite is minted.
@@ -219,7 +219,7 @@ class ApplicationService(BaseService):
                 application_id=application.id,
                 actor_telegram_id=telegram_id,
                 action="contact_updated",
-                # Which fields changed, never the values — the audit log must not
+                # Which fields changed, never the values - the audit log must not
                 # accumulate PII (data minimisation; /withdraw erases the rest).
                 details=(
                     f"nickname={'changed' if nickname is not None else '-'}"
@@ -234,7 +234,7 @@ class ApplicationService(BaseService):
         self, telegram_id: int, payload: RegistrationCreate
     ) -> bool:
         """Overwrite the skill/category fields of the caller's active application
-        in place — lets a player refine their roles, experience, engine, tools and
+        in place - lets a player refine their roles, experience, engine, tools and
         motivation over time WITHOUT losing their (possibly approved) status or
         creating a new row. Nickname/email are managed separately via update_contact.
         Returns False if they have no active application."""
@@ -295,7 +295,7 @@ class ApplicationService(BaseService):
         return await self.applications.find_by_id_prefix(prefix)
 
     async def erase_user_data(self, telegram_id: int) -> bool:
-        """Right-to-erasure: hard-delete EVERYTHING stored about the caller — the
+        """Right-to-erasure: hard-delete EVERYTHING stored about the caller - the
         user row (nickname, email, username, language) and, via cascade, all their
         applications (active AND rejected) with their audit logs. Irreversible;
         the player can register again from scratch afterwards."""

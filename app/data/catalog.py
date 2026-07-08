@@ -136,7 +136,7 @@ CATEGORIES: tuple[Category, ...] = (
 
 CATEGORY_BY_ID: dict[str, Category] = {c.id: c for c in CATEGORIES}
 
-# Leading digit of a player's public id, keyed by category — a "region code" à la
+# Leading digit of a player's public id, keyed by category - a "region code" à la
 # Genshin, so a glance at the id tells you the discipline (1xxxx = programmer,
 # 3xxxx = 2D artist, …). Reorder freely; each digit just needs to stay unique.
 CATEGORY_ID_PREFIX: dict[str, int] = {
@@ -151,7 +151,7 @@ CATEGORY_ID_PREFIX: dict[str, int] = {
 # Width of the per-category counter; player_code = prefix * 10**PLAYER_CODE_WIDTH + n.
 # 6 → seven-digit ids with room for 1,000,000 players per discipline
 # (programming 1000001..1999999, game_design 2000001.., …). Bump higher for more
-# headroom — BigInteger stores it, and each category's block stays disjoint.
+# headroom - BigInteger stores it, and each category's block stays disjoint.
 PLAYER_CODE_WIDTH = 6
 
 
@@ -179,7 +179,7 @@ def role_titles(role_ids: list[str]) -> list[str]:
 
 
 # Reverse of ROLE_BY_ID's title view: titles are globally unique, so we can map a
-# stored role title back to its id — used to pre-select current roles when a
+# stored role title back to its id - used to pre-select current roles when a
 # player edits their profile.
 ROLE_ID_BY_TITLE: dict[str, str] = {
     role.title: role.id for category in CATEGORIES for role in category.roles
@@ -192,16 +192,16 @@ def role_ids_from_titles(titles: list[str]) -> list[str]:
 
 
 EXPERIENCE_LEVELS: dict[str, str] = {
-    "beginner": "Beginner · 0–6 мес.",
-    "intermediate": "Junior · 6–18 мес.",
-    "game_jam": "Middle · 18–36 мес.",
+    "beginner": "Beginner · 0-6 мес.",
+    "intermediate": "Junior · 6-18 мес.",
+    "game_jam": "Middle · 18-36 мес.",
     "commercial": "Senior · 36+ мес.",
 }
 
 # Sentinel option offered on the engine/tools multi-selects: the player hasn't
 # worked with any yet. It's a real stored value (so the schema whitelist accepts
 # a "none yet" answer and admins see it on the card) but is EXCLUSIVE with real
-# picks — see toggle_engine/toggle_tool.
+# picks - see toggle_engine/toggle_tool.
 NO_EXPERIENCE_OPTION = "Пока не работал(а)"
 
 # The free-text catch-all keeps the stable internal value "Other" (referenced by

@@ -10,7 +10,7 @@ from app.core.config import get_settings
 class AdminMiddleware(BaseMiddleware):
     """Stamps `is_admin` on the handler context for every update.
 
-    Registered on the update observer, so `event` is an aiogram `Update` — the
+    Registered on the update observer, so `event` is an aiogram `Update` - the
     actual Message/CallbackQuery lives on `update.event`. Prefer the
     `event_from_user` aiogram already resolved into `data`, and fall back to
     unwrapping the Update ourselves so this works regardless of middleware order.

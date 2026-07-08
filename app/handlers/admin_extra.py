@@ -41,7 +41,7 @@ async def cmd_stats(message: Message, services: ServiceContainer) -> None:
     rejected = by_status.get("rejected", 0)
     pending = by_status.get("pending_review", 0)
     decided = approved + rejected
-    approval_rate = f"{(approved / decided * 100):.0f}%" if decided else "—"
+    approval_rate = f"{(approved / decided * 100):.0f}%" if decided else "-"
 
     lines = [
         "<b>Статистика заявок</b>\n",
@@ -67,11 +67,11 @@ async def cmd_stats(message: Message, services: ServiceContainer) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# /export — CSV of every application
+# /export - CSV of every application
 # --------------------------------------------------------------------------- #
 # Chars that make Excel/LibreOffice treat a cell as a formula. A crafted nickname
 # like ``=HYPERLINK("http://evil","click")`` or ``@SUM(...)`` would otherwise run
-# when an admin opens the export — classic CSV/formula injection.
+# when an admin opens the export - classic CSV/formula injection.
 _CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
 
@@ -84,11 +84,18 @@ def _csv_cell(value: object) -> str:
     return text
 
 
+def _blank_empty_multiselect(value: str) -> str:
+    """join_with_other renders an empty engine/tools list as the "-" placeholder;
+    a CSV cell should be truly empty instead. Matched by equality (not a substring
+    strip) so real hyphens inside names like "Construct-3" survive."""
+    return "" if value == "-" else value
+
+
 @router.message(Command("export"))
 async def cmd_export(message: Message, services: ServiceContainer) -> None:
     applications = await services.applications.list_all_with_users()
     if not applications:
-        await message.answer("Заявок нет — экспортировать нечего.")
+        await message.answer("Заявок нет - экспортировать нечего.")
         return
 
     buffer = io.StringIO()
@@ -116,8 +123,8 @@ async def cmd_export(message: Message, services: ServiceContainer) -> None:
             app.skill_category_title,
             "; ".join(app.subcategories),
             EXPERIENCE_LEVELS.get(app.experience_level, app.experience_level),
-            join_with_other(app.engine, app.engine_other).replace("—", ""),
-            join_with_other(app.tools, app.tools_other).replace("—", ""),
+            _blank_empty_multiselect(join_with_other(app.engine, app.engine_other)),
+            _blank_empty_multiselect(join_with_other(app.tools, app.tools_other)),
             "; ".join(app.motivations),
             app.created_at.isoformat() if app.created_at else "",
         ]
@@ -132,7 +139,7 @@ async def cmd_export(message: Message, services: ServiceContainer) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# /broadcast — message every approved player (FSM: compose → confirm → send)
+# /broadcast - message every approved player (FSM: compose → confirm → send)
 # --------------------------------------------------------------------------- #
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext, services: ServiceContainer) -> None:
@@ -143,7 +150,7 @@ async def cmd_broadcast(message: Message, state: FSMContext, services: ServiceCo
     await state.set_state(AdminStates.broadcast_message)
     await message.answer(
         f"Введите текст рассылки для <b>{len(approved)}</b> одобренных игроков.\n"
-        "HTML-разметка поддерживается. /cancel — отмена."
+        "HTML-разметка поддерживается. /cancel - отмена."
     )
 
 

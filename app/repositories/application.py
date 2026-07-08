@@ -22,7 +22,7 @@ class ApplicationRepository(BaseRepository[Application]):
 
     async def find_by_id_prefix(self, prefix: str) -> Application | None:
         """Look up an application by (a prefix of) its id. Returns None when the
-        prefix is ambiguous — acting on 'whichever matched first' could hand an
+        prefix is ambiguous - acting on 'whichever matched first' could hand an
         admin decision to the wrong application."""
         if not prefix:
             return None
@@ -84,7 +84,7 @@ class ApplicationRepository(BaseRepository[Application]):
 
     async def max_player_code_in_block(self, base: int, block: int) -> int | None:
         """Highest player_code already assigned in a category's [base, base+block)
-        window — the seed for the next code in that discipline."""
+        window - the seed for the next code in that discipline."""
         return await self.session.scalar(
             select(func.max(Application.player_code)).where(
                 Application.player_code >= base,
@@ -101,7 +101,7 @@ class ApplicationRepository(BaseRepository[Application]):
         return int(result or 0)
 
     async def first_pending(self) -> Application | None:
-        """The oldest application still awaiting review — the head of the FIFO
+        """The oldest application still awaiting review - the head of the FIFO
         review queue that /review walks through one card at a time."""
         result = await self.session.scalars(
             select(Application)

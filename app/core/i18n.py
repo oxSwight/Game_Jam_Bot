@@ -6,7 +6,7 @@ Keeps translation data in one place and lets handlers stay declarative:
     await message.answer(t("welcome", lang))
 
 Design choices:
-- No gettext/.po tooling — the string set is small and Python-native is easier
+- No gettext/.po tooling - the string set is small and Python-native is easier
   to grep, test, and keep in sync with the code that uses it.
 - Unknown keys raise in tests (via ``assert_catalog_complete``) but degrade to
   the key name at runtime so a missing translation never crashes a handler.
@@ -20,7 +20,7 @@ DEFAULT_LANG = "ru"
 
 LANG_TITLES: dict[str, str] = {"ru": "🇷🇺 Русский", "en": "🇬🇧 English"}
 
-# Telegram never gives a bot the user's country — only the client's UI language
+# Telegram never gives a bot the user's country - only the client's UI language
 # (language_code). We use it as a region proxy: post-Soviet / CIS locales default
 # to Russian, everyone else to English. This is only the *default*; a saved
 # /language choice always overrides it, and /start offers an explicit RU/EN pick.
@@ -133,14 +133,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ru": (
             "Ваша заявка одобрена.\n\n"
             "Вот ваша персональная ссылка для вступления в игру:\n{link}\n\n"
-            "Перейдите по ней и отправьте запрос на вступление — бот подтвердит "
+            "Перейдите по ней и отправьте запрос на вступление - бот подтвердит "
             "вас автоматически. Ссылка персональная: чужие запросы по ней "
-            "отклоняются. Если ссылка не сработала — /invite выдаст новую."
+            "отклоняются. Если ссылка не сработала - /invite выдаст новую."
         ),
         "en": (
             "Your application was approved.\n\n"
             "Here is your personal link to join the game:\n{link}\n\n"
-            "Open it and send a join request — the bot will confirm you "
+            "Open it and send a join request - the bot will confirm you "
             "automatically. The link is personal: anyone else's request through "
             "it is declined. If the link fails, /invite issues a new one."
         ),
@@ -148,12 +148,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "notify_approved_no_link": {
         "ru": (
             "Ваша заявка одобрена. Пригласительную ссылку не удалось создать "
-            "автоматически — попробуйте /invite чуть позже или дождитесь "
+            "автоматически - попробуйте /invite чуть позже или дождитесь "
             "администратора."
         ),
         "en": (
             "Your application was approved. The invite link could not be created "
-            "automatically — try /invite a bit later or wait for an admin."
+            "automatically - try /invite a bit later or wait for an admin."
         ),
     },
     "invite_not_approved": {
@@ -167,8 +167,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
     },
     "invite_already_member": {
-        "ru": "Вы уже состоите в группе — ссылка не нужна.",
-        "en": "You are already a member of the group — no link needed.",
+        "ru": "Вы уже состоите в группе - ссылка не нужна.",
+        "en": "You are already a member of the group - no link needed.",
     },
     "invite_failed": {
         "ru": "Не удалось создать ссылку. Попробуйте позже: /invite",
@@ -189,12 +189,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "удаляет всё: заявку (включая отклонённые), ник, email и настройки. "
             "Выход из группы сам по себе данные не удаляет.\n\n"
             "<b>Правила участия:</b>\n"
-            "• это MVP-тест — возможны сбои;\n"
+            "• это MVP-тест - возможны сбои;\n"
             "• заявка проверяется вручную; после отклонения можно подать новую;\n"
-            "• ссылки и спам в анкете запрещены — такая заявка сбрасывается;\n"
+            "• ссылки и спам в анкете запрещены - такая заявка сбрасывается;\n"
             "• пригласительная ссылка персональная, передавать её бессмысленно;\n"
             "• будьте готовы подтвердить навыки примерами работ;\n"
-            "• в группе — уважительное общение.\n\n"
+            "• в группе - уважительное общение.\n\n"
             "Нажимая «Принимаю условия», вы соглашаетесь с обработкой указанных "
             "данных на этих условиях. Полный текст: docs/PRIVACY.md в репозитории "
             "проекта или по запросу у администратора."
@@ -215,10 +215,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "ones), nickname, email and settings. Leaving the group alone does "
             "not erase data.\n\n"
             "<b>Participation rules:</b>\n"
-            "• this is an MVP test — glitches may happen;\n"
+            "• this is an MVP test - glitches may happen;\n"
             "• applications are reviewed manually; you may re-apply after a "
             "rejection;\n"
-            "• links and spam in the form are forbidden — such an application "
+            "• links and spam in the form are forbidden - such an application "
             "is reset;\n"
             "• the invite link is personal, sharing it is pointless;\n"
             "• be ready to back up your skills with work samples;\n"
@@ -280,7 +280,7 @@ def normalize_lang(lang: str | None) -> str:
 def resolve_ui_lang(language_code: str | None) -> str:
     """Choose RU or EN from a Telegram client ``language_code``, region-aware.
 
-    Rules (default only — a saved preference wins over this):
+    Rules (default only - a saved preference wins over this):
     - no code at all → RU (no signal; historical default, and /start lets them pick);
     - explicit ``ru``/``en`` (incl. regional variants like ``en-US``) → that language;
     - any other CIS locale (``uk``, ``kk``, ``hy``, …) → RU;

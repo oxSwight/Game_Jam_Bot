@@ -9,7 +9,7 @@ def review_keyboard(application_id: str) -> InlineKeyboardMarkup:
     performs the decision and swaps the card for the next pending application.
 
     The full 36-char UUID fits Telegram's 64-byte callback_data cap alongside the
-    "rev:approve:" prefix (48 bytes total), so no truncated-prefix lookups — and
+    "rev:approve:" prefix (48 bytes total), so no truncated-prefix lookups - and
     no chance of a prefix collision routing a decision to the wrong application.
     """
     builder = InlineKeyboardBuilder()

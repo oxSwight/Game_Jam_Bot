@@ -91,7 +91,7 @@ def cancel_keyboard() -> ReplyKeyboardMarkup:
 
 
 def categories_keyboard() -> InlineKeyboardMarkup:
-    """Tier 1 — parent categories."""
+    """Tier 1 - parent categories."""
     builder = InlineKeyboardBuilder()
     for category in CATEGORIES:
         builder.button(text=category.title, callback_data=f"cat:{category.id}")
@@ -106,7 +106,7 @@ def roles_keyboard(
     page: int = 0,
     page_size: int = 6,
 ) -> InlineKeyboardMarkup:
-    """Tier 2 — paginated, multi-select roles within a category."""
+    """Tier 2 - paginated, multi-select roles within a category."""
     items = list(CATEGORY_BY_ID[category_id].roles)
     start = page * page_size
     chunk = items[start : start + page_size]

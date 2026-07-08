@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def render_application_card(application: ApplicationRead) -> str:
-    """Formatted, HTML-safe card for a single application — shown by the /review
+    """Formatted, HTML-safe card for a single application - shown by the /review
     dashboard, one application at a time."""
     experience = EXPERIENCE_LEVELS.get(
         application.experience_level, application.experience_level
@@ -35,7 +35,7 @@ def render_application_card(application: ApplicationRead) -> str:
 
 
 class NotificationService:
-    """Telegram-side notifications and invite-link minting — keeps handlers free
+    """Telegram-side notifications and invite-link minting - keeps handlers free
     of message formatting and Bot-API calls."""
 
     def __init__(self, bot: Bot, admin_ping_window: float = 30.0) -> None:
@@ -44,7 +44,7 @@ class NotificationService:
         # Debounce for the per-application admin ping: at most one push per this
         # many seconds, so a burst of sign-ups can't spam admins (or trip
         # Telegram's flood limits). The queue count in each ping stays fresh, so a
-        # skipped ping loses no information — the next one shows the current total.
+        # skipped ping loses no information - the next one shows the current total.
         self._admin_ping_window = admin_ping_window
         self._last_admin_ping: float | None = None
 
@@ -63,7 +63,7 @@ class NotificationService:
         text = t(
             "admin_new_application",
             DEFAULT_LANG,
-            nickname=safe(nickname) or "—",
+            nickname=safe(nickname) or "-",
             category=safe(category),
             count=pending_count,
         )
@@ -79,7 +79,7 @@ class NotificationService:
         """Mint a join-request invite link into the gated group and DM it to the
         approved applicant. Returns True if a link was successfully delivered,
         False if we had to fall back to a link-less approval notice."""
-        # A banned user can't use ANY invite link — Telegram shows it as "expired"
+        # A banned user can't use ANY invite link - Telegram shows it as "expired"
         # (Истекшая ссылка). If this applicant was previously removed/kicked,
         # clear the ban first so their fresh link actually works. Best-effort.
         await self._unban_if_banned(telegram_id)
@@ -87,7 +87,7 @@ class NotificationService:
         if link is None:
             await self._safe_send(telegram_id, t("notify_approved_no_link", lang))
             return False
-        # The link is bot-generated (a t.me URL) — trusted, not user input, so it
+        # The link is bot-generated (a t.me URL) - trusted, not user input, so it
         # is interpolated verbatim and Telegram auto-links it.
         await self._safe_send(
             telegram_id, t("notify_approved", lang, nickname=safe(nickname), link=link)
@@ -107,7 +107,7 @@ class NotificationService:
                 only_if_banned=True,
             )
         except Exception:
-            # Missing can_restrict_members, or a transient API error — the invite
+            # Missing can_restrict_members, or a transient API error - the invite
             # is still worth sending; a genuinely-banned user just won't get in.
             logger.warning(
                 "could not clear a possible ban before inviting user", exc_info=True
@@ -115,14 +115,14 @@ class NotificationService:
 
     async def _create_join_request_invite(self, nickname: str) -> str | None:
         """Create an invite link that raises a join REQUEST instead of letting the
-        holder straight in (creates_join_request=True — Telegram forbids combining
+        holder straight in (creates_join_request=True - Telegram forbids combining
         it with member_limit). The chat_join_request handler then approves only
         users whose application is APPROVED, so a leaked/forwarded link admits
-        nobody else — identity is checked at the door, not by possession of a URL.
+        nobody else - identity is checked at the door, not by possession of a URL.
         Returns the URL, or None if the group isn't configured or the call fails."""
         if not self.settings.group_chat_id:
             logger.error(
-                "GROUP_CHAT_ID is not configured — cannot mint an invite link"
+                "GROUP_CHAT_ID is not configured - cannot mint an invite link"
             )
             return None
         # name is an admin-facing label (max 32 chars), not shown to the user.

@@ -1,8 +1,8 @@
 """Admin review dashboard.
 
 A single /review card walks the pending queue one application at a time. Acting
-on it (approve/reject) performs the decision — minting a personal join-request
-group invite on approval — then edits the same message to show the next
+on it (approve/reject) performs the decision - minting a personal join-request
+group invite on approval - then edits the same message to show the next
 application, so admins never get one push per sign-up (which would blow
 Telegram's rate limits).
 """
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class IsAdminFilter(BaseFilter):
     """Passes only when AdminMiddleware has stamped is_admin=True on the event data.
 
-    Works for both Message and CallbackQuery events — `is_admin` is injected by
+    Works for both Message and CallbackQuery events - `is_admin` is injected by
     name from the handler data regardless of the event type.
     """
 
@@ -42,7 +42,7 @@ router.callback_query.filter(IsAdminFilter())
 
 
 # --------------------------------------------------------------------------- #
-# /review — one card at a time, swipe-through queue
+# /review - one card at a time, swipe-through queue
 # --------------------------------------------------------------------------- #
 @router.message(Command("review"))
 async def cmd_review(message: Message, services: ServiceContainer) -> None:
@@ -53,7 +53,7 @@ async def cmd_review(message: Message, services: ServiceContainer) -> None:
 @router.callback_query(F.data.startswith("rev:"))
 async def cb_review_decision(callback: CallbackQuery, services: ServiceContainer) -> None:
     # callback data: "rev:<approve|reject>:<application_id>" (full UUID; old
-    # cards may still carry an 8-char prefix — find_by_prefix handles both)
+    # cards may still carry an 8-char prefix - find_by_prefix handles both)
     try:
         _, action, prefix = callback.data.split(":", 2)
     except ValueError:
@@ -62,7 +62,7 @@ async def cb_review_decision(callback: CallbackQuery, services: ServiceContainer
 
     application = await services.applications.find_by_prefix(prefix)
     if application is None or application.status != ApplicationStatus.PENDING_REVIEW:
-        # Already handled (e.g. by another admin) — just advance to the next card.
+        # Already handled (e.g. by another admin) - just advance to the next card.
         await callback.answer("Заявка уже обработана.")
         await _refresh_review(callback, services)
         return
@@ -141,7 +141,7 @@ async def _render_review(services: ServiceContainer) -> tuple[str, object | None
     empty-queue message with no keyboard."""
     application = await services.applications.first_pending()
     if application is None:
-        return "Очередь пуста — заявок на проверке нет.", None
+        return "Очередь пуста - заявок на проверке нет.", None
 
     remaining = await services.applications.count_pending()
     card = render_application_card(_to_read(application))
@@ -154,7 +154,7 @@ async def _refresh_review(callback: CallbackQuery, services: ServiceContainer) -
     try:
         await callback.message.edit_text(text, reply_markup=keyboard)
     except TelegramBadRequest:
-        # "message is not modified" when nothing changed — safe to ignore.
+        # "message is not modified" when nothing changed - safe to ignore.
         logger.debug("review card unchanged, skipping edit")
 
 
@@ -162,7 +162,7 @@ async def _refresh_review(callback: CallbackQuery, services: ServiceContainer) -
 # Helpers
 # --------------------------------------------------------------------------- #
 def _nickname(application: Application) -> str:
-    return (application.user.nickname if application.user else None) or "—"
+    return (application.user.nickname if application.user else None) or "-"
 
 
 def _to_read(application: Application) -> ApplicationRead:

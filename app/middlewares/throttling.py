@@ -12,17 +12,17 @@ logger = logging.getLogger(__name__)
 class ThrottlingMiddleware(BaseMiddleware):
     """Per-user anti-spam throttle: a token bucket with an escalating shadowban.
 
-    A hard "one action per second" limit made the inline questionnaire painful —
+    A hard "one action per second" limit made the inline questionnaire painful -
     legitimate quick taps (selecting several roles, tapping the captcha right after
     /register) were silently dropped. A token bucket fixes that while still
     stopping floods:
 
     * Each user has a bucket of ``burst`` tokens, refilled at ``refill_rate``
       tokens/second. A normal human taps a handful of buttons, pauses to read,
-      and the bucket refills — they never run dry.
+      and the bucket refills - they never run dry.
     * A flood script empties the bucket and then spends every further action
       over-budget. Each over-budget action is a strike; after ``spam_strikes`` of
-      them the user is **shadowbanned** for ``ban_seconds`` — every update dropped
+      them the user is **shadowbanned** for ``ban_seconds`` - every update dropped
       with no reply at all, so the script gets zero feedback to adapt to.
     * A well-paced action decays one strike, so the odd fast burst never snowballs
       into a ban.

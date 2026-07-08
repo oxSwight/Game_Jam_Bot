@@ -1,1 +1,1 @@
-"""GameJam Telegram bot — production-ready application package."""
+"""GameJam Telegram bot - production-ready application package."""

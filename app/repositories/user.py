@@ -26,7 +26,7 @@ class UserRepository(BaseRepository[User]):
 
     async def get_language(self, telegram_id: int) -> str | None:
         """Lightweight single-column lookup for the per-update language
-        middleware — avoids loading the user and all their applications."""
+        middleware - avoids loading the user and all their applications."""
         return await self.session.scalar(
             select(User.language).where(User.telegram_id == telegram_id)
         )

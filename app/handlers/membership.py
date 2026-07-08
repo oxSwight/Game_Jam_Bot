@@ -2,8 +2,8 @@
 
 The bot is an admin of the gated group, so Telegram delivers a ``chat_member``
 update whenever someone's membership there changes. We use it to keep each
-player's ``is_active`` flag in sync — False when they leave/are kicked, True when
-they (re)join — and to greet a returning player we already remember with a DM.
+player's ``is_active`` flag in sync - False when they leave/are kicked, True when
+they (re)join - and to greet a returning player we already remember with a DM.
 """
 
 import logging
@@ -55,7 +55,7 @@ async def on_join_request(event: ChatJoinRequest, services: ServiceContainer) ->
         else:
             await event.decline()
     except Exception:
-        # Request already handled by a human admin, expired, or a flood limit —
+        # Request already handled by a human admin, expired, or a flood limit -
         # nothing to recover; the user can simply follow the link again.
         logger.warning("could not settle join request", exc_info=True)
         return
@@ -78,14 +78,14 @@ async def on_group_membership_change(
     now_member = _is_member(event.new_chat_member)
     was_member = _is_member(event.old_chat_member)
 
-    # Only touch players we already know — we don't create rows for random joiners.
+    # Only touch players we already know - we don't create rows for random joiners.
     user = await services.users.set_active(affected.id, now_member)
     await services.session.commit()
     if user is None:
-        logger.debug("membership change for unknown user %s — ignored", affected.id)
+        logger.debug("membership change for unknown user %s - ignored", affected.id)
         return
 
-    # Log the internal row id, not the Telegram id — keeps PII out of the logs.
+    # Log the internal row id, not the Telegram id - keeps PII out of the logs.
     logger.info(
         "membership change: user_id=%s is_active=%s (%s -> %s)",
         user.id,

@@ -73,7 +73,7 @@ async def _setup_commands(bot: Bot, admin_ids: list[int]) -> None:
             logger.warning("could not set admin commands for %s", admin_id, exc_info=True)
 
 
-# The GROUP_CHAT_ID shipped in .env.example — a live deployment left on this value
+# The GROUP_CHAT_ID shipped in .env.example - a live deployment left on this value
 # has never configured its real group, so approvals can't mint invite links.
 _EXAMPLE_GROUP_CHAT_ID = -1001234567890
 
@@ -83,17 +83,17 @@ def _warn_on_risky_config(settings) -> None:
     on startup instead of via a confused admin ('/review does nothing')."""
     if not settings.admin_ids:
         logger.warning(
-            "ADMIN_IDS is EMPTY — /review, /stats, /export and /broadcast are "
+            "ADMIN_IDS is EMPTY - /review, /stats, /export and /broadcast are "
             "disabled and nobody can review applications. Set ADMIN_IDS."
         )
     if settings.group_chat_id is None:
         logger.warning(
-            "GROUP_CHAT_ID is not set — approvals cannot mint invite links. "
+            "GROUP_CHAT_ID is not set - approvals cannot mint invite links. "
             "Set it to your gated group's numeric id."
         )
     elif settings.group_chat_id == _EXAMPLE_GROUP_CHAT_ID:
         logger.warning(
-            "GROUP_CHAT_ID is still the .env.example placeholder (%s) — approvals "
+            "GROUP_CHAT_ID is still the .env.example placeholder (%s) - approvals "
             "cannot mint invite links. Set it to your real group id.",
             _EXAMPLE_GROUP_CHAT_ID,
         )
@@ -113,7 +113,7 @@ async def _create_storage() -> tuple[BaseStorage, object | None]:
         )
 
     redis = create_redis()
-    await redis.ping()  # intentional fail-fast — no except
+    await redis.ping()  # intentional fail-fast - no except
     logger.info("FSM storage: Redis (%s)", settings.redis_url)
     return create_fsm_storage(redis), redis
 
@@ -197,7 +197,7 @@ async def main() -> None:
 
     await bot.delete_webhook(drop_pending_updates=True)
     await _setup_commands(bot, settings.admin_ids)
-    # Log the admin COUNT, not the ids — Telegram ids are PII.
+    # Log the admin COUNT, not the ids - Telegram ids are PII.
     logger.info(
         "bot starting",
         extra={"extra_fields": {"log_json": settings.log_json, "admins": len(settings.admin_ids)}},
@@ -205,7 +205,7 @@ async def main() -> None:
     heartbeat_task = asyncio.create_task(_heartbeat())
     try:
         # resolve_used_update_types() makes Telegram deliver chat_member and
-        # chat_join_request updates (needed by the membership handlers) — they're
+        # chat_join_request updates (needed by the membership handlers) - they're
         # excluded from the default set.
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:

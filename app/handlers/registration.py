@@ -55,7 +55,7 @@ OTHER_TEXT_MAX = 64
 
 def not_command(message: Message) -> bool:
     """Filter: a message that is NOT a slash-command. Applied to free-text FSM
-    steps so a command (e.g. /language) typed mid-flow isn't swallowed as input —
+    steps so a command (e.g. /language) typed mid-flow isn't swallowed as input -
     the handler doesn't match, and the message falls through to its command
     handler instead. /cancel still works: its handler is registered first."""
     return not (message.text or "").startswith("/")
@@ -87,7 +87,7 @@ def _consent_text(lang: str) -> str:
 
 
 def _build_summary(data: dict) -> str:
-    roles = ", ".join(safe(title) for title in role_titles(data.get("roles", []))) or "—"
+    roles = ", ".join(safe(title) for title in role_titles(data.get("roles", []))) or "-"
     engine = join_with_other(data.get("engine", []), data.get("engine_other"))
     tools = join_with_other(data.get("tools", []), data.get("tools_other"))
     motivations = ", ".join(safe(m) for m in data.get("motivations", []))
@@ -95,9 +95,9 @@ def _build_summary(data: dict) -> str:
     lines = [
         f"<b>Ник:</b> {safe(data.get('nickname'))}",
         f"<b>Email:</b> {safe(data.get('email'))}",
-        f"<b>Категория:</b> {safe(data.get('category_title', '—'))}",
+        f"<b>Категория:</b> {safe(data.get('category_title', '-'))}",
         f"<b>Роли:</b> {roles}",
-        f"<b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '—'))}",
+        f"<b>Опыт:</b> {safe(EXPERIENCE_LEVELS.get(data.get('experience_level', ''), '-'))}",
         f"<b>Движок:</b> {engine}",
         f"<b>Инструменты:</b> {tools}",
         f"<b>Мотивация:</b> {motivations}",
@@ -114,7 +114,7 @@ async def _go_to_motivation(message: Message, state: FSMContext) -> None:
         data = await state.get_data()
     await state.set_state(RegistrationStates.motivation)
     await message.answer(
-        "<b>Шаг G — Мотивация</b>\n\n"
+        "<b>Шаг G - Мотивация</b>\n\n"
         "Что вас привлекает? (можно несколько):",
         reply_markup=motivation_keyboard(set(data.get("motivations", []))),
     )
@@ -139,7 +139,7 @@ async def _landing_message(
         )
         return text, False
 
-    # Known returning player (registered before, no active application now) — the
+    # Known returning player (registered before, no active application now) - the
     # bot remembers them even if they left the group. Greet them back by name.
     user = await services.users.get_by_telegram_id(telegram_id)
     if user and user.nickname:
@@ -258,11 +258,11 @@ async def cmd_status(message: Message, services: ServiceContainer, lang: str = "
     membership = "в группе" if profile.is_active else "не в группе"
     await message.answer(
         f"<b>Ваш профиль</b>\n\n"
-        f"ID игрока: <code>{profile.player_code or '—'}</code>\n"
+        f"ID игрока: <code>{profile.player_code or '-'}</code>\n"
         f"Ник: {safe(profile.nickname)}\n"
         f"Email: {safe(profile.email)}\n"
         f"Категория: {safe(MAIN_CATEGORIES.get(profile.main_category, profile.skill_category_title))}\n"
-        f"Роли: {', '.join(safe(s) for s in profile.subcategories) or '—'}\n"
+        f"Роли: {', '.join(safe(s) for s in profile.subcategories) or '-'}\n"
         f"Опыт: {safe(EXPERIENCE_LEVELS.get(profile.experience_level, profile.experience_level))}\n"
         f"Движок: {join_with_other(profile.engine, profile.engine_other)}\n"
         f"Инструменты: {join_with_other(profile.tools, profile.tools_other)}\n"
@@ -290,7 +290,7 @@ async def cmd_withdraw(
     lang: str = "ru",
 ) -> None:
     """Self-service right to erasure: irreversibly deletes EVERYTHING stored
-    about the caller — user row (nickname, email, username, language) and all
+    about the caller - user row (nickname, email, username, language) and all
     applications including rejected ones, with their audit logs."""
     await state.clear()
     removed = await services.applications.erase_user_data(message.from_user.id)
@@ -310,13 +310,13 @@ async def cmd_invite(
 ) -> None:
     """Invite re-issue. Two modes:
 
-    * ``/invite`` (anyone) — self-service: an approved player whose link failed to
+    * ``/invite`` (anyone) - self-service: an approved player whose link failed to
       arrive gets a fresh one for themselves.
-    * ``/invite @username`` (admins only) — deliver a fresh link to a specific
+    * ``/invite @username`` (admins only) - deliver a fresh link to a specific
       approved player by their Telegram username, so an admin can nudge someone in
       without waiting for them to run /invite.
 
-    Safe to hand out repeatedly — the link only files a join request, and
+    Safe to hand out repeatedly - the link only files a join request, and
     on_join_request re-checks approval before letting anyone in."""
     arg = (command.args if command else None) or ""
     if is_admin and arg.strip():
@@ -363,7 +363,7 @@ async def _admin_invite_by_username(
         status = profile.status if profile else "нет активной заявки"
         await message.answer(
             f"@{safe(username)}: статус «{safe(status)}». Ссылку выдаём только "
-            "одобренным — сначала одобрите заявку через /review."
+            "одобренным - сначала одобрите заявку через /review."
         )
         return
     if profile.is_active:
@@ -380,7 +380,7 @@ async def _admin_invite_by_username(
         await message.answer(f"✅ Ссылка отправлена @{safe(username)}.")
     else:
         await message.answer(
-            f"Не удалось отправить ссылку @{safe(username)} — возможно, пользователь "
+            f"Не удалось отправить ссылку @{safe(username)} - возможно, пользователь "
             "не начинал диалог с ботом, и бот не может ему написать."
         )
 
@@ -486,9 +486,9 @@ async def edit_pick_skills(
     )
     await callback.message.edit_text(
         "<b>Изменение профиля</b>\n\n"
-        "Пройдите анкету заново — текущие ответы уже отмечены. Меняйте что нужно "
+        "Пройдите анкету заново - текущие ответы уже отмечены. Меняйте что нужно "
         "и жмите «Готово» на каждом шаге.\n\n"
-        "<b>Шаг B — Категория</b>\nВыберите основное направление:",
+        "<b>Шаг B - Категория</b>\nВыберите основное направление:",
         reply_markup=categories_keyboard(),
     )
     await callback.answer()
@@ -549,7 +549,7 @@ async def _apply_edit(
         return
     await state.clear()
     if ok:
-        await message.answer("Данные обновлены. /status — посмотреть профиль.")
+        await message.answer("Данные обновлены. /status - посмотреть профиль.")
     else:
         await message.answer("Активная заявка не найдена.")
 
@@ -558,21 +558,21 @@ async def _apply_edit(
 async def cmd_help(message: Message, is_admin: bool = False) -> None:
     lines = [
         "<b>Команды</b>\n",
-        "/register — подать заявку",
-        "/status — статус вашей заявки",
-        "/edit — изменить ник, email, навыки и категорию",
-        "/invite — получить ссылку в группу (после одобрения)",
-        "/withdraw — безвозвратно удалить все свои данные",
-        "/language — сменить язык",
+        "/register - подать заявку",
+        "/status - статус вашей заявки",
+        "/edit - изменить ник, email, навыки и категорию",
+        "/invite - получить ссылку в группу (после одобрения)",
+        "/withdraw - безвозвратно удалить все свои данные",
+        "/language - сменить язык",
     ]
     if is_admin:
         lines += [
             "\n<b>Админ:</b>",
-            "/review — очередь заявок: одобрение и отклонение",
-            "/invite @username — выслать ссылку конкретному одобренному игроку",
-            "/stats — статистика",
-            "/export — выгрузка CSV",
-            "/broadcast — рассылка одобренным",
+            "/review - очередь заявок: одобрение и отклонение",
+            "/invite @username - выслать ссылку конкретному одобренному игроку",
+            "/stats - статистика",
+            "/export - выгрузка CSV",
+            "/broadcast - рассылка одобренным",
         ]
     await message.answer("\n".join(lines))
 
@@ -597,9 +597,9 @@ async def consent_accept(callback: CallbackQuery, state: FSMContext) -> None:
         logger.debug("could not delete consent message, removing keyboard instead")
         await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        "<b>Шаг A — Базовая информация</b>\n\n"
+        "<b>Шаг A - Базовая информация</b>\n\n"
         "Введите ваш <b>никнейм</b> (отображаемое имя в группе):\n\n"
-        "<i>Можно отменить в любой момент — кнопка ниже.</i>",
+        "<i>Можно отменить в любой момент - кнопка ниже.</i>",
         reply_markup=cancel_keyboard(),
     )
     await callback.answer()
@@ -657,7 +657,7 @@ async def process_email(
 
     await state.set_state(RegistrationStates.category)
     await message.answer(
-        "<b>Шаг B — Категория</b>\n\n"
+        "<b>Шаг B - Категория</b>\n\n"
         "Выберите основное направление:",
         reply_markup=categories_keyboard(),
     )
@@ -731,7 +731,7 @@ async def toggle_role(callback: CallbackQuery, state: FSMContext) -> None:
             return
         await state.set_state(RegistrationStates.experience)
         await callback.message.edit_text(
-            "<b>Шаг C — Уровень опыта</b>\n\n"
+            "<b>Шаг C - Уровень опыта</b>\n\n"
             "Выберите ваш уровень:",
             reply_markup=experience_keyboard(),
         )
@@ -763,9 +763,9 @@ async def process_experience(callback: CallbackQuery, state: FSMContext) -> None
         engine = []
     await state.set_state(RegistrationStates.engine)
     await callback.message.edit_text(
-        "<b>Шаг D — Движок</b>\n\n"
+        "<b>Шаг D - Движок</b>\n\n"
         "Выберите движок(и), с которыми работали (можно несколько). "
-        "Если ещё не пробовали — отметьте «Пока не работал(а)»:",
+        "Если ещё не пробовали - отметьте «Пока не работал(а)»:",
         reply_markup=engine_keyboard(set(engine), has_other="Other" in engine),
     )
     await callback.answer()
@@ -780,9 +780,9 @@ async def _go_to_tools(message: Message, state: FSMContext) -> None:
     selected = set(data.get("tools", []))
     await state.set_state(RegistrationStates.tools)
     await message.answer(
-        "<b>Шаг E — Инструменты</b>\n\n"
+        "<b>Шаг E - Инструменты</b>\n\n"
         "Выберите инструменты, с которыми работали (можно несколько). "
-        "Если ещё не пробовали — отметьте «Пока не работал(а)»:",
+        "Если ещё не пробовали - отметьте «Пока не работал(а)»:",
         reply_markup=tools_keyboard(selected, has_other="Other" in selected),
     )
 
@@ -863,7 +863,7 @@ async def toggle_tool(callback: CallbackQuery, state: FSMContext) -> None:
     if action in selected:
         selected.remove(action)
     elif action == NO_EXPERIENCE_OPTION:
-        # Exclusive "haven't worked with any" — replaces every other pick.
+        # Exclusive "haven't worked with any" - replaces every other pick.
         selected = [NO_EXPERIENCE_OPTION]
         await state.update_data(tools_other=None)
     else:
@@ -973,7 +973,7 @@ async def confirm_submit(
             await callback.message.edit_text(
                 "<b>Профиль обновлён.</b>\n\n" + _build_summary(data)
             )
-            await callback.message.answer("Готово. /status — посмотреть профиль.")
+            await callback.message.answer("Готово. /status - посмотреть профиль.")
             await callback.answer("Обновлено")
         else:
             await callback.message.edit_text("Активная заявка не найдена. /register")
@@ -992,7 +992,7 @@ async def confirm_submit(
         await callback.answer(t("queue_full", lang), show_alert=True)
         return
     except IntegrityError:
-        # nickname and email are UNIQUE — someone already took the one they chose.
+        # nickname and email are UNIQUE - someone already took the one they chose.
         # Roll back the failed unit of work and route them back to re-enter their
         # contact details rather than dead-ending on the confirm screen with a
         # cryptic error they can only repeat. Their category/roles/engine/etc. stay
@@ -1019,7 +1019,7 @@ async def confirm_submit(
     )
     await callback.message.answer("Регистрация завершена.", reply_markup=ReplyKeyboardRemove())
 
-    # application_id only — Telegram ids are PII and don't belong in INFO logs.
+    # application_id only - Telegram ids are PII and don't belong in INFO logs.
     logger.info(
         "application submitted",
         extra={"extra_fields": {"application_id": application.id}},
@@ -1040,7 +1040,7 @@ async def confirm_submit(
 async def nav_back_category(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.category)
     await callback.message.edit_text(
-        "<b>Шаг B — Категория</b>\n\nВыберите основное направление:",
+        "<b>Шаг B - Категория</b>\n\nВыберите основное направление:",
         reply_markup=categories_keyboard(),
     )
     await callback.answer()
@@ -1066,7 +1066,7 @@ async def nav_back_roles(callback: CallbackQuery, state: FSMContext) -> None:
 async def nav_back_exp(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.experience)
     await callback.message.edit_text(
-        "<b>Шаг C — Уровень опыта</b>\n\nВыберите ваш уровень:",
+        "<b>Шаг C - Уровень опыта</b>\n\nВыберите ваш уровень:",
         reply_markup=experience_keyboard(),
     )
     await callback.answer()
@@ -1078,7 +1078,7 @@ async def nav_back_engine(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.engine)
     selected = set(data.get("engine", []))
     await callback.message.edit_text(
-        "<b>Шаг D — Движок</b>\n\nВыберите движок:",
+        "<b>Шаг D - Движок</b>\n\nВыберите движок:",
         reply_markup=engine_keyboard(selected, has_other="Other" in selected),
     )
     await callback.answer()
@@ -1090,7 +1090,7 @@ async def nav_back_tools(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.tools)
     selected = set(data.get("tools", []))
     await callback.message.edit_text(
-        "<b>Шаг E — Инструменты</b>\n\nВыберите инструменты:",
+        "<b>Шаг E - Инструменты</b>\n\nВыберите инструменты:",
         reply_markup=tools_keyboard(selected, has_other="Other" in selected),
     )
     await callback.answer()

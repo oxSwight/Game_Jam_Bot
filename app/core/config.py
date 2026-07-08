@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     bot_token: str = Field(..., alias="BOT_TOKEN")
     # NoDecode: stop pydantic-settings from JSON-decoding this env var before our
     # validator runs. Without it, a single id like "717098190" is valid JSON and
-    # gets decoded to an int, which our before-validator then turns into [] —
+    # gets decoded to an int, which our before-validator then turns into [] -
     # silently disabling all admin access. See parse_admin_ids below.
     admin_ids: Annotated[list[int], NoDecode] = Field(default_factory=list, alias="ADMIN_IDS")
 
