@@ -40,7 +40,7 @@ def test_from_fsm_data_stores_role_titles():
             "email": "neo@example.com",
             "category_id": "programming",
             "category_title": "Programming / Engineering",
-            "roles": ["programmer", "gameplay"],
+            "roles": ["gameplay_programmer", "general_programmer"],
             "experience_level": "beginner",
             "engine": ["Unity"],
             "tools": ["Blender"],
@@ -51,7 +51,7 @@ def test_from_fsm_data_stores_role_titles():
         telegram_username="neo",
     )
     # role ids resolved to human titles for downstream rendering
-    assert payload.subcategories == ["Programmer", "Gameplay"]
+    assert payload.subcategories == ["Gameplay Programmer", "General Programmer"]
     assert payload.main_category == "programming"
 
 
@@ -63,7 +63,7 @@ def test_invalid_main_category_rejected():
                 "email": "neo@example.com",
                 "category_id": "not_real",
                 "category_title": "X",
-                "roles": ["programmer"],
+                "roles": ["gameplay_programmer"],
                 "experience_level": "beginner",
                 "engine": ["Unity"],
                 "tools": ["Blender"],

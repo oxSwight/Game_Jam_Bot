@@ -1,11 +1,11 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.data.catalog import (
+    ALL_ENGINES,
+    ALL_TOOLS,
     CATEGORY_BY_ID,
-    ENGINES,
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
-    TOOLS,
     role_titles,
 )
 
@@ -62,8 +62,7 @@ class ToolsStep(BaseModel):
     @field_validator("tools")
     @classmethod
     def validate_tools(cls, value: list[str]) -> list[str]:
-        allowed = set(TOOLS)
-        invalid = [tool for tool in value if tool not in allowed]
+        invalid = [tool for tool in value if tool not in ALL_TOOLS]
         if invalid:
             raise ValueError(f"invalid tools: {', '.join(invalid)}")
         return value
@@ -131,7 +130,7 @@ class RegistrationCreate(BaseModel):
     @field_validator("engine")
     @classmethod
     def validate_engine(cls, value: list[str]) -> list[str]:
-        invalid = [item for item in value if item not in ENGINES]
+        invalid = [item for item in value if item not in ALL_ENGINES]
         if invalid:
             raise ValueError(f"invalid engines: {', '.join(invalid)}")
         return value
@@ -139,7 +138,7 @@ class RegistrationCreate(BaseModel):
     @field_validator("tools")
     @classmethod
     def validate_tools(cls, value: list[str]) -> list[str]:
-        invalid = [item for item in value if item not in TOOLS]
+        invalid = [item for item in value if item not in ALL_TOOLS]
         if invalid:
             raise ValueError(f"invalid tools: {', '.join(invalid)}")
         return value

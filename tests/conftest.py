@@ -70,7 +70,7 @@ def make_payload(
             "email": email,
             "category_id": category_id,
             "category_title": category_title,
-            "roles": roles if roles is not None else ["programmer", "gameplay"],
+            "roles": roles if roles is not None else ["gameplay_programmer", "general_programmer"],
             "experience_level": "beginner",
             "engine": ["Unity"],
             "engine_other": None,

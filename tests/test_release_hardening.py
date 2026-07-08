@@ -40,7 +40,7 @@ def _fsm_data(**overrides):
         "email": "t@x.com",
         "category_id": "programming",
         "category_title": "Programming / Engineering",
-        "roles": ["programmer"],
+        "roles": ["gameplay_programmer"],
         "experience_level": "beginner",
         "engine": ["Unity"],
         "engine_other": None,

@@ -9,11 +9,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from app.data.catalog import (
     CATEGORIES,
     CATEGORY_BY_ID,
-    ENGINES,
     EXPERIENCE_LEVELS,
     MOTIVATIONS,
-    TOOLS,
+    NO_EXPERIENCE_OPTION,
+    engine_none_label,
+    engines_for,
     option_label,
+    tools_for,
+    tools_none_label,
 )
 
 # Reply-keyboard label for aborting registration. Kept as a module constant so the
@@ -153,11 +156,25 @@ def experience_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def engine_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMarkup:
+def _option_text(value: str, none_label: str) -> str:
+    """Button label for a multi-select value: the context-specific label for the
+    "haven't worked" sentinel, otherwise the friendly/self label."""
+    if value == NO_EXPERIENCE_OPTION:
+        return none_label
+    return option_label(value)
+
+
+def engine_keyboard(
+    selected: set[str], *, category_id: str | None = None, has_other: bool = False
+) -> InlineKeyboardMarkup:
+    none_label = engine_none_label(category_id)
     builder = InlineKeyboardBuilder()
-    for engine in ENGINES:
+    for engine in engines_for(category_id):
         prefix = "✓ " if engine in selected else ""
-        builder.button(text=f"{prefix}{option_label(engine)}", callback_data=f"engine:{engine}")
+        builder.button(
+            text=f"{prefix}{_option_text(engine, none_label)}",
+            callback_data=f"engine:{engine}",
+        )
     builder.adjust(1)
     builder.row(
         InlineKeyboardButton(text="Готово", callback_data="engine:done"),
@@ -166,11 +183,17 @@ def engine_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMar
     return builder.as_markup()
 
 
-def tools_keyboard(selected: set[str], *, has_other: bool) -> InlineKeyboardMarkup:
+def tools_keyboard(
+    selected: set[str], *, category_id: str | None = None, has_other: bool = False
+) -> InlineKeyboardMarkup:
+    none_label = tools_none_label(category_id)
     builder = InlineKeyboardBuilder()
-    for tool in TOOLS:
+    for tool in tools_for(category_id):
         prefix = "✓ " if tool in selected else ""
-        builder.button(text=f"{prefix}{option_label(tool)}", callback_data=f"tool:{tool}")
+        builder.button(
+            text=f"{prefix}{_option_text(tool, none_label)}",
+            callback_data=f"tool:{tool}",
+        )
     builder.adjust(1)
     builder.row(
         InlineKeyboardButton(text="Готово", callback_data="tool:done"),

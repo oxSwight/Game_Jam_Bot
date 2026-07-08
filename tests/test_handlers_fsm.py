@@ -325,7 +325,7 @@ async def _seed_confirm_state(state, *, nickname, email):
         email=email,
         category_id="programming",
         category_title="Programming / Engineering",
-        roles=["programmer", "gameplay"],
+        roles=["gameplay_programmer", "general_programmer"],
         experience_level="beginner",
         engine=["Unity"],
         engine_other=None,
@@ -376,12 +376,12 @@ async def test_edit_skills_updates_existing_application(services, session):
     assert await state.get_state() == reg_h.RegistrationStates.category.state
     data = await state.get_data()
     assert data.get("edit_mode") is True
-    assert data.get("roles") == ["programmer", "gameplay"]
+    assert data.get("roles") == ["gameplay_programmer", "general_programmer"]
     assert data.get("engine") == ["Unity"]
 
     await reg_h.process_category(FakeCallback("cat:programming", 111), state)
-    assert (await state.get_data()).get("roles") == ["programmer", "gameplay"]
-    await reg_h.toggle_role(FakeCallback("role:backend_other", 111), state)
+    assert (await state.get_data()).get("roles") == ["gameplay_programmer", "general_programmer"]
+    await reg_h.toggle_role(FakeCallback("role:ai_programmer", 111), state)
     await reg_h.toggle_role(FakeCallback("role:done", 111), state)
 
     await reg_h.process_experience(FakeCallback("exp:commercial", 111), state)
@@ -396,8 +396,8 @@ async def test_edit_skills_updates_existing_application(services, session):
     profile = await services.users.get_profile(111)
     assert profile.id == original_id                  # same row, not a new application
     assert profile.experience_level == "commercial"   # changed
-    assert "Backend" in profile.subcategories         # added role
-    assert "Programmer" in profile.subcategories      # kept
+    assert "AI Programmer" in profile.subcategories        # added role
+    assert "Gameplay Programmer" in profile.subcategories  # kept
     assert profile.engine == ["Unity"]                # preserved through the walk
 
 

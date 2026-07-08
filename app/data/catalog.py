@@ -39,15 +39,14 @@ CATEGORIES: tuple[Category, ...] = (
         description="Геймплей, движок, бэкенд, инструменты, интеграция.",
         roles=_r(
             (
-                ("programmer", "Programmer"),
-                ("frontend", "Frontend"),
-                ("gameplay", "Gameplay"),
-                ("backend_other", "Backend"),
-                ("tools_engine", "Tools / Engine"),
-                ("graphics", "Graphics / Shaders"),
-                ("network", "Networking / Multiplayer"),
-                ("qa_automation", "QA / Automation"),
-                ("devops", "DevOps / Build"),
+                ("gameplay_programmer", "Gameplay Programmer"),
+                ("blueprint_developer", "Blueprint Developer"),
+                ("technical_designer_prog", "Technical Designer"),
+                ("ui_programmer", "UI Programmer"),
+                ("tools_programmer", "Tools Programmer"),
+                ("ai_programmer", "AI Programmer"),
+                ("network_programmer", "Network Programmer"),
+                ("general_programmer", "General Programmer"),
             )
         ),
     ),
@@ -61,8 +60,10 @@ CATEGORIES: tuple[Category, ...] = (
                 ("level_designer", "Level Designer"),
                 ("systems_designer", "Systems Designer"),
                 ("combat_designer", "Combat Designer"),
-                ("economy_designer", "Economy / Balance"),
-                ("narrative", "Narrative / Writer"),
+                ("quest_designer", "Quest Designer"),
+                ("narrative_designer", "Narrative Designer"),
+                ("balance_economy_designer", "Balance / Economy Designer"),
+                ("technical_designer_gd", "Technical Designer"),
                 ("ux_designer", "UX Designer"),
             )
         ),
@@ -74,13 +75,15 @@ CATEGORIES: tuple[Category, ...] = (
         roles=_r(
             (
                 ("concept", "Concept Artist"),
-                ("illustrator", "Illustrator"),
-                ("character_2d", "2D Character Artist"),
-                ("environment_2d", "2D Environment Artist"),
+                ("character_2d", "Character Artist"),
+                ("environment_concept_2d", "Environment Concept Artist"),
+                ("prop_concept_2d", "Prop Concept Artist"),
                 ("ui_artist", "UI Artist"),
-                ("pixel", "Pixel Artist"),
-                ("animator_2d", "2D Animator"),
+                ("icon_artist", "Icon Artist"),
+                ("illustrator", "Illustrator"),
                 ("texture_2d", "Texture Artist"),
+                ("animator_2d", "2D Animator"),
+                ("storyboard_artist", "Storyboard Artist"),
             )
         ),
     ),
@@ -114,6 +117,7 @@ CATEGORIES: tuple[Category, ...] = (
                 ("audio_impl", "Audio Implementation"),
                 ("voice", "Voice / Dialogue"),
                 ("adaptive_audio", "Adaptive / Interactive Music"),
+                ("audio_generalist", "Audio Generalist"),
             )
         ),
     ),
@@ -126,6 +130,7 @@ CATEGORIES: tuple[Category, ...] = (
                 ("project_manager", "Project Manager"),
                 ("producer", "Producer"),
                 ("team_lead", "Team Lead"),
+                ("coordinator", "Coordinator"),
                 ("scrum_master", "Scrum Master"),
                 ("community_manager", "Community Manager"),
                 ("qa_lead", "QA Lead"),
@@ -178,17 +183,28 @@ def role_titles(role_ids: list[str]) -> list[str]:
     return [ROLE_BY_ID[r].title for r in role_ids if r in ROLE_BY_ID]
 
 
-# Reverse of ROLE_BY_ID's title view: titles are globally unique, so we can map a
-# stored role title back to its id - used to pre-select current roles when a
-# player edits their profile.
+# Reverse title -> id map, used to pre-select current roles when a player edits
+# their profile. Titles are unique WITHIN a category but not always across them
+# (e.g. "Technical Designer" lives under both programming and game_design), so we
+# key by category; callers that know the owning category pass it to disambiguate.
+ROLE_ID_BY_TITLE_BY_CATEGORY: dict[str, dict[str, str]] = {
+    category.id: {role.title: role.id for role in category.roles}
+    for category in CATEGORIES
+}
+
+# Flat fallback for when the category isn't known. An ambiguous title resolves to
+# its last-defined owner, so prefer passing a category to role_ids_from_titles.
 ROLE_ID_BY_TITLE: dict[str, str] = {
     role.title: role.id for category in CATEGORIES for role in category.roles
 }
 
 
-def role_ids_from_titles(titles: list[str]) -> list[str]:
-    """Resolve stored role titles back to their ids (skips unknown titles)."""
-    return [ROLE_ID_BY_TITLE[title] for title in titles if title in ROLE_ID_BY_TITLE]
+def role_ids_from_titles(titles: list[str], category_id: str | None = None) -> list[str]:
+    """Resolve stored role titles back to their ids (skips unknown titles). Pass
+    ``category_id`` to resolve within that category, so a title shared across
+    categories maps to the role that category actually owns."""
+    mapping = ROLE_ID_BY_TITLE_BY_CATEGORY.get(category_id) or ROLE_ID_BY_TITLE
+    return [mapping[title] for title in titles if title in mapping]
 
 
 EXPERIENCE_LEVELS: dict[str, str] = {
@@ -217,7 +233,12 @@ def option_label(value: str) -> str:
     return OPTION_LABELS.get(value, value)
 
 
-ENGINES: tuple[str, ...] = (
+# Step D (engine) and Step E (tools) offer different option lists per category:
+# a programmer sees languages, a game designer sees production tools, etc. A
+# category without its own list falls back to DEFAULT_ENGINES / DEFAULT_TOOLS.
+# Every list ends with the two sentinels (NO_EXPERIENCE_OPTION, OTHER_OPTION),
+# which carry special selection semantics in the handlers.
+DEFAULT_ENGINES: tuple[str, ...] = (
     "Unreal Engine",
     "Unity",
     "Godot",
@@ -227,7 +248,7 @@ ENGINES: tuple[str, ...] = (
     OTHER_OPTION,
 )
 
-TOOLS: tuple[str, ...] = (
+DEFAULT_TOOLS: tuple[str, ...] = (
     "Blender",
     "Maya",
     "3ds Max",
@@ -239,6 +260,105 @@ TOOLS: tuple[str, ...] = (
     "Aseprite",
     NO_EXPERIENCE_OPTION,
     OTHER_OPTION,
+)
+
+ENGINES_BY_CATEGORY: dict[str, tuple[str, ...]] = {
+    "programming": (
+        "Unreal Engine",
+        "Unity",
+        "Godot",
+        "Roblox / UEFN",
+        "Custom engine",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
+    "game_design": (
+        "Unreal Engine",
+        "Unity",
+        "Godot",
+        "Roblox / UEFN / другой редактор",
+        "Tabletop / бумажные прототипы",
+        "Только документация",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
+    "art_2d": (
+        "Unreal Engine",
+        "Unity",
+        "Godot",
+        "Roblox / UEFN",
+        "Custom engine",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
+}
+
+TOOLS_BY_CATEGORY: dict[str, tuple[str, ...]] = {
+    "programming": (
+        "C++",
+        "C#",
+        "Blueprints",
+        "Python",
+        "JavaScript / TypeScript",
+        "Lua",
+        "GDScript",
+        "Visual Scripting",
+        "Git / GitHub",
+        "Perforce",
+        "Rider",
+        "Visual Studio",
+        "VS Code",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
+    "game_design": (
+        "Miro",
+        "Figma / FigJam",
+        "Google Docs",
+        "Notion",
+        "Trello",
+        "Jira",
+        "Confluence",
+        "Excel / Google Sheets",
+        "Machinations",
+        "Draw.io / diagrams",
+        "Twine",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
+}
+
+
+def engines_for(category_id: str | None) -> tuple[str, ...]:
+    """Step D options for a category (falls back to DEFAULT_ENGINES)."""
+    return ENGINES_BY_CATEGORY.get(category_id or "", DEFAULT_ENGINES)
+
+
+def tools_for(category_id: str | None) -> tuple[str, ...]:
+    """Step E options for a category (falls back to DEFAULT_TOOLS)."""
+    return TOOLS_BY_CATEGORY.get(category_id or "", DEFAULT_TOOLS)
+
+
+# Display label for the "haven't worked with any" sentinel. Its STORED value is
+# always NO_EXPERIENCE_OPTION; only the button text differs per step so it reads
+# naturally. Categories still on the default list keep the plain label unchanged.
+def engine_none_label(category_id: str | None) -> str:
+    return "Пока не работал(а) с движками" if category_id in ENGINES_BY_CATEGORY else NO_EXPERIENCE_OPTION
+
+
+def tools_none_label(category_id: str | None) -> str:
+    return "Пока не работал" if category_id in TOOLS_BY_CATEGORY else NO_EXPERIENCE_OPTION
+
+
+# Anti-forgery whitelist for the final payload: the union of every engine / tool
+# value across all categories. The per-category buttons only ever surface a
+# subset, but any real catalog value is accepted regardless of the category the
+# applicant picked (keeps validation simple and category-independent).
+ALL_ENGINES: frozenset[str] = frozenset(
+    value for group in (DEFAULT_ENGINES, *ENGINES_BY_CATEGORY.values()) for value in group
+)
+ALL_TOOLS: frozenset[str] = frozenset(
+    value for group in (DEFAULT_TOOLS, *TOOLS_BY_CATEGORY.values()) for value in group
 )
 
 MOTIVATIONS: tuple[str, ...] = (

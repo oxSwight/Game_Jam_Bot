@@ -12,7 +12,7 @@ async def test_submit_registration_happy_path(services, session):
 
     assert app.status == ApplicationStatus.PENDING_REVIEW.value
     assert app.nickname == "Tester"
-    assert app.subcategories == ["Programmer", "Gameplay"]
+    assert app.subcategories == ["Gameplay Programmer", "General Programmer"]
     assert await services.applications.count_pending() == 1
 
 

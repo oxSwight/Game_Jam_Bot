@@ -52,6 +52,52 @@ logger = logging.getLogger(__name__)
 # submit, so we cap them to keep stored data (and rendered messages) sane.
 OTHER_TEXT_MAX = 64
 
+# Step D (engine) and Step E (tools) reword their title/description per category,
+# matching the category-specific option lists in the catalog. A category without
+# its own text falls back to the default prompt.
+_DEFAULT_ENGINE_PROMPT = (
+    "<b>Шаг D - Движок</b>\n\n"
+    "Выберите движок(и), с которыми работали (можно несколько). "
+    "Если ещё не пробовали - отметьте «Пока не работал(а)»:"
+)
+_ENGINE_PROMPTS: dict[str, str] = {
+    "game_design": (
+        "<b>Шаг D - Движок или рабочий контекст</b>\n\n"
+        "Выберите, где вы уже пробовали реализовывать или описывать игровые идеи "
+        "(можно несколько). Если ещё не пробовали - отметьте «Пока не работал(а)»:"
+    ),
+    "art_2d": (
+        "<b>Шаг D - Движок или формат интеграции</b>\n\n"
+        "Выберите, работали ли вы с игровыми движками или готовили 2D-графику "
+        "для игры (можно несколько). Если ещё не пробовали - отметьте «Пока не работал(а)»:"
+    ),
+}
+_DEFAULT_TOOLS_PROMPT = (
+    "<b>Шаг E - Инструменты</b>\n\n"
+    "Выберите инструменты, с которыми работали (можно несколько). "
+    "Если ещё не пробовали - отметьте «Пока не работал(а)»:"
+)
+_TOOLS_PROMPTS: dict[str, str] = {
+    "programming": (
+        "<b>Шаг E - Языки и инструменты</b>\n\n"
+        "Выберите языки, технологии и инструменты, с которыми вы работали "
+        "(можно несколько). Если ещё не пробовали - отметьте «Пока не работал»:"
+    ),
+    "game_design": (
+        "<b>Шаг E - Инструменты и формат работы</b>\n\n"
+        "Выберите инструменты, с которыми вы работали (можно несколько). "
+        "Если ещё не пробовали - отметьте «Пока не работал»:"
+    ),
+}
+
+
+def _engine_prompt(category_id: str | None) -> str:
+    return _ENGINE_PROMPTS.get(category_id or "", _DEFAULT_ENGINE_PROMPT)
+
+
+def _tools_prompt(category_id: str | None) -> str:
+    return _TOOLS_PROMPTS.get(category_id or "", _DEFAULT_TOOLS_PROMPT)
+
 
 def not_command(message: Message) -> bool:
     """Filter: a message that is NOT a slash-command. Applied to free-text FSM
@@ -474,7 +520,7 @@ async def edit_pick_skills(
         email=profile.email,
         category_id=profile.main_category,
         category_title=profile.skill_category_title,
-        roles=role_ids_from_titles(profile.subcategories),
+        roles=role_ids_from_titles(profile.subcategories, profile.main_category),
         role_page=0,
         experience_level=profile.experience_level,
         engine=list(profile.engine),
@@ -761,12 +807,13 @@ async def process_experience(callback: CallbackQuery, state: FSMContext) -> None
     else:
         await state.update_data(experience_level=level, engine=[], engine_other=None)
         engine = []
+    category_id = data.get("category_id")
     await state.set_state(RegistrationStates.engine)
     await callback.message.edit_text(
-        "<b>Шаг D - Движок</b>\n\n"
-        "Выберите движок(и), с которыми работали (можно несколько). "
-        "Если ещё не пробовали - отметьте «Пока не работал(а)»:",
-        reply_markup=engine_keyboard(set(engine), has_other="Other" in engine),
+        _engine_prompt(category_id),
+        reply_markup=engine_keyboard(
+            set(engine), category_id=category_id, has_other="Other" in engine
+        ),
     )
     await callback.answer()
 
@@ -778,12 +825,13 @@ async def _go_to_tools(message: Message, state: FSMContext) -> None:
         await state.update_data(tools=[], tools_other=None)
         data = await state.get_data()
     selected = set(data.get("tools", []))
+    category_id = data.get("category_id")
     await state.set_state(RegistrationStates.tools)
     await message.answer(
-        "<b>Шаг E - Инструменты</b>\n\n"
-        "Выберите инструменты, с которыми работали (можно несколько). "
-        "Если ещё не пробовали - отметьте «Пока не работал(а)»:",
-        reply_markup=tools_keyboard(selected, has_other="Other" in selected),
+        _tools_prompt(category_id),
+        reply_markup=tools_keyboard(
+            selected, category_id=category_id, has_other="Other" in selected
+        ),
     )
 
 
@@ -819,7 +867,11 @@ async def toggle_engine(callback: CallbackQuery, state: FSMContext) -> None:
         selected.append(action)
     await state.update_data(engine=selected)
     await callback.message.edit_reply_markup(
-        reply_markup=engine_keyboard(set(selected), has_other="Other" in selected),
+        reply_markup=engine_keyboard(
+            set(selected),
+            category_id=data.get("category_id"),
+            has_other="Other" in selected,
+        ),
     )
     await callback.answer()
 
@@ -871,7 +923,11 @@ async def toggle_tool(callback: CallbackQuery, state: FSMContext) -> None:
         selected.append(action)
     await state.update_data(tools=selected)
     await callback.message.edit_reply_markup(
-        reply_markup=tools_keyboard(set(selected), has_other="Other" in selected),
+        reply_markup=tools_keyboard(
+            set(selected),
+            category_id=data.get("category_id"),
+            has_other="Other" in selected,
+        ),
     )
     await callback.answer()
 
@@ -1077,9 +1133,12 @@ async def nav_back_engine(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(RegistrationStates.engine)
     selected = set(data.get("engine", []))
+    category_id = data.get("category_id")
     await callback.message.edit_text(
-        "<b>Шаг D - Движок</b>\n\nВыберите движок:",
-        reply_markup=engine_keyboard(selected, has_other="Other" in selected),
+        _engine_prompt(category_id),
+        reply_markup=engine_keyboard(
+            selected, category_id=category_id, has_other="Other" in selected
+        ),
     )
     await callback.answer()
 
@@ -1089,8 +1148,11 @@ async def nav_back_tools(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(RegistrationStates.tools)
     selected = set(data.get("tools", []))
+    category_id = data.get("category_id")
     await callback.message.edit_text(
-        "<b>Шаг E - Инструменты</b>\n\nВыберите инструменты:",
-        reply_markup=tools_keyboard(selected, has_other="Other" in selected),
+        _tools_prompt(category_id),
+        reply_markup=tools_keyboard(
+            selected, category_id=category_id, has_other="Other" in selected
+        ),
     )
     await callback.answer()

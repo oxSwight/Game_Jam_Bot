@@ -67,7 +67,7 @@ async def _submit(services, session, **kw):
 async def test_player_code_prefixed_by_category(services, session):
     prog = await _submit(services, session, telegram_id=1, nickname="Prog", email="p@x.com",
                          category_id="programming", category_title="Programming / Engineering",
-                         roles=["programmer"])
+                         roles=["gameplay_programmer"])
     art = await _submit(services, session, telegram_id=2, nickname="Artist", email="a@x.com",
                         category_id="art_2d", category_title="2D Art", roles=["concept"])
 
@@ -84,7 +84,7 @@ async def test_player_codes_increment_within_category(services, session):
 async def test_category_change_reissues_player_code(services, session):
     read = await _submit(services, session, telegram_id=1, nickname="Switcher", email="s@x.com",
                          category_id="programming", category_title="Programming / Engineering",
-                         roles=["programmer"])
+                         roles=["gameplay_programmer"])
     assert read.player_code == 1000001  # programming block
 
     # Switch discipline to Audio → the id must move into the audio block.
@@ -102,10 +102,10 @@ async def test_category_change_reissues_player_code(services, session):
 async def test_same_category_edit_keeps_player_code(services, session):
     read = await _submit(services, session, telegram_id=1, nickname="Stable", email="st@x.com",
                          category_id="programming", category_title="Programming / Engineering",
-                         roles=["programmer"])
+                         roles=["gameplay_programmer"])
     payload = make_payload(telegram_id=1, nickname="Stable", email="st@x.com",
                            category_id="programming", category_title="Programming / Engineering",
-                           roles=["programmer", "backend_other"])
+                           roles=["gameplay_programmer", "general_programmer"])
     await services.applications.update_profile(1, payload)
     await session.commit()
     profile = await services.users.get_profile(1)
