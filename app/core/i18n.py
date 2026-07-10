@@ -419,6 +419,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ru": "<b>Проверьте данные перед отправкой:</b>",
         "en": "<b>Check your details before submitting:</b>",
     },
+    "reg_confirm_warning": {
+        "ru": (
+            "⚠️ <b>Заявка ещё НЕ отправлена.</b> "
+            "Нажмите «Отправить заявку» ниже, чтобы завершить регистрацию."
+        ),
+        "en": (
+            "⚠️ <b>Your application is NOT submitted yet.</b> "
+            "Tap “Submit application” below to finish."
+        ),
+    },
+    "reg_confirm_warning_edit": {
+        "ru": "⚠️ <b>Изменения ещё НЕ сохранены.</b> Нажмите «Отправить заявку» ниже.",
+        "en": "⚠️ <b>Your changes are NOT saved yet.</b> Tap “Submit application” below.",
+    },
     "reg_summary": {
         "ru": (
             "<b>Ник:</b> {nickname}\n"

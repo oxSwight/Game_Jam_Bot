@@ -29,6 +29,7 @@ from app.core.logging import setup_logging
 from app.core.redis import create_fsm_storage, create_redis
 from app.handlers.admin import router as admin_router
 from app.handlers.admin_extra import router as admin_extra_router
+from app.handlers.fallback import router as fallback_router
 from app.handlers.membership import router as membership_router
 from app.handlers.registration import router as registration_router
 from app.middlewares import (
@@ -176,6 +177,9 @@ async def main() -> None:
     dp.include_router(admin_router)
     dp.include_router(admin_extra_router)
     dp.include_router(membership_router)
+    # Must be LAST: catches inline taps no other router claimed (stale buttons /
+    # reset sessions) so they never vanish silently.
+    dp.include_router(fallback_router)
 
     @dp.error()
     async def global_error_handler(event: ErrorEvent) -> None:

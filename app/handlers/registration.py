@@ -186,6 +186,28 @@ async def _go_to_strengths(message: Message, state: FSMContext, lang: str = "ru"
     )
 
 
+def _confirm_text(data: dict, lang: str, telegram_id: int) -> str:
+    """Confirm-screen body with a loud reminder that NOTHING is submitted until the
+    button is pressed — the review card looked final and users walked away thinking
+    they'd registered. Logged too, so a "registered but /status is empty" report can
+    be pinned to whether the user actually reached this screen."""
+    logger.info(
+        "confirm screen shown",
+        extra={"extra_fields": {
+            "telegram_id": telegram_id,
+            "edit_mode": bool(data.get("edit_mode")),
+        }},
+    )
+    warn_key = "reg_confirm_warning_edit" if data.get("edit_mode") else "reg_confirm_warning"
+    return (
+        t("reg_confirm_header", lang)
+        + "\n\n"
+        + _build_summary(data, lang)
+        + "\n\n"
+        + t(warn_key, lang)
+    )
+
+
 async def _go_to_motivation(message: Message, state: FSMContext, lang: str = "ru") -> None:
     data = await state.get_data()
     # Fresh registration starts with nothing selected; an edit keeps the current
@@ -740,7 +762,7 @@ async def process_email(
         await state.update_data(awaiting_contact_fix=False)
         await state.set_state(RegistrationStates.confirm)
         await message.answer(
-            t("reg_confirm_header", lang) + "\n\n" + _build_summary(data, lang),
+            _confirm_text(data, lang, message.from_user.id),
             reply_markup=confirm_keyboard(lang),
         )
         return
@@ -1030,9 +1052,8 @@ async def toggle_motivation(callback: CallbackQuery, state: FSMContext, lang: st
             await callback.answer(t("reg_pick_one", lang), show_alert=True)
             return
         await state.set_state(RegistrationStates.confirm)
-        summary = _build_summary(data | {"motivations": selected}, lang)
         await callback.message.edit_text(
-            t("reg_confirm_header", lang) + "\n\n" + summary,
+            _confirm_text(data | {"motivations": selected}, lang, callback.from_user.id),
             reply_markup=confirm_keyboard(lang),
         )
         await callback.answer()
@@ -1069,6 +1090,14 @@ async def confirm_submit(
     lang: str = "ru",
 ) -> None:
     data = await state.get_data()
+    logger.info(
+        "submit received",
+        extra={"extra_fields": {
+            "telegram_id": callback.from_user.id,
+            "has_data": bool(data),
+            "edit_mode": bool(data.get("edit_mode")),
+        }},
+    )
 
     try:
         payload = RegistrationCreate.from_fsm_data(

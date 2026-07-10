@@ -9,6 +9,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.core.i18n import SUPPORTED_LANGS, assert_catalog_complete, t
 from app.handlers.admin import router as admin_router
 from app.handlers.admin_extra import router as admin_extra_router
+from app.handlers.fallback import router as fallback_router
+from app.handlers.membership import router as membership_router
 from app.handlers.registration import router as registration_router
 
 
@@ -17,8 +19,10 @@ def test_routers_register_without_error():
     dp.include_router(registration_router)
     dp.include_router(admin_router)
     dp.include_router(admin_extra_router)
+    dp.include_router(membership_router)
+    dp.include_router(fallback_router)  # must stay last: catch-all for stale taps
     # sub_routers reflects successful inclusion
-    assert len(dp.sub_routers) == 3
+    assert len(dp.sub_routers) == 5
 
 
 def test_middlewares_compose():
