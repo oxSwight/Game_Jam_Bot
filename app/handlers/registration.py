@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
-from app.core.i18n import normalize_lang, t
+from app.core.i18n import SUPPORTED_LANGS, normalize_lang, t
 from app.data.captcha import build_captcha
 from app.data.catalog import (
     BEGINNER_EXPERIENCE,
@@ -190,8 +190,10 @@ def _confirm_text(data: dict, lang: str, telegram_id: int) -> str:
     """Confirm-screen body with a loud reminder that NOTHING is submitted until the
     button is pressed — the review card looked final and users walked away thinking
     they'd registered. Logged too, so a "registered but /status is empty" report can
-    be pinned to whether the user actually reached this screen."""
-    logger.info(
+    be pinned to whether the user actually reached this screen. DEBUG, not INFO:
+    the record carries a telegram_id (PII), which must not sit in routine prod logs -
+    raise LOG_LEVEL to DEBUG only while investigating such a report."""
+    logger.debug(
         "confirm screen shown",
         extra={"extra_fields": {
             "telegram_id": telegram_id,
@@ -330,7 +332,9 @@ async def cb_start_registration(
     await callback.answer()
 
 
-@router.callback_query(RegistrationStates.captcha, F.data.startswith("cap:"))
+# regexp, not startswith: callback_data is client-controlled (a modified client
+# can send any string), so "cap:junk" must not reach int() and crash the handler.
+@router.callback_query(RegistrationStates.captcha, F.data.regexp(r"^cap:\d+$"))
 async def process_captcha(
     callback: CallbackQuery, state: FSMContext, lang: str = "ru"
 ) -> None:
@@ -516,6 +520,11 @@ async def cmd_language(message: Message, lang: str = "ru") -> None:
 @router.callback_query(F.data.startswith("lang:"))
 async def set_language(callback: CallbackQuery, services: ServiceContainer) -> None:
     code = callback.data.split(":", 1)[1]
+    # callback_data is client-controlled: only store codes we actually support,
+    # so a forged "lang:<junk>" can't persist garbage into the user row.
+    if code not in SUPPORTED_LANGS:
+        await callback.answer()
+        return
     await services.users.set_language(callback.from_user.id, code)
     # Don't dead-end on a bare "language switched": re-render the landing in the
     # chosen language with a concrete next step (and a one-tap Start button for
@@ -813,7 +822,8 @@ async def process_category(callback: CallbackQuery, state: FSMContext, lang: str
     await callback.answer()
 
 
-@router.callback_query(RegistrationStates.roles, F.data.startswith("role_page:"))
+# regexp: forged "role_page:junk" must not reach int() (see the captcha note).
+@router.callback_query(RegistrationStates.roles, F.data.regexp(r"^role_page:\d+$"))
 async def role_page(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     page = int(callback.data.split(":", 1)[1])
     data = await state.get_data()
@@ -1090,7 +1100,9 @@ async def confirm_submit(
     lang: str = "ru",
 ) -> None:
     data = await state.get_data()
-    logger.info(
+    # DEBUG: telegram_id is PII and doesn't belong in routine INFO logs (the
+    # non-PII "application submitted" INFO record below covers normal ops).
+    logger.debug(
         "submit received",
         extra={"extra_fields": {
             "telegram_id": callback.from_user.id,
@@ -1183,7 +1195,12 @@ async def confirm_submit(
     await callback.answer("Application received" if lang == "en" else "Заявка принята")
 
 
-@router.callback_query(F.data == "nav:back_category")
+# Every nav:back_* handler is pinned to the state whose keyboard shows the
+# button. Without the filter a tap on a STALE message (session already cleared
+# or moved on) matched here anyway and indexed empty FSM data - KeyError and a
+# generic error toast. With the filter such taps fall through to the fallback
+# router, which answers with the proper "session expired" guidance.
+@router.callback_query(RegistrationStates.roles, F.data == "nav:back_category")
 async def nav_back_category(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     await state.set_state(RegistrationStates.category)
     await callback.message.edit_text(
@@ -1193,10 +1210,17 @@ async def nav_back_category(callback: CallbackQuery, state: FSMContext, lang: st
     await callback.answer()
 
 
-@router.callback_query(F.data == "nav:back_roles")
+@router.callback_query(RegistrationStates.experience, F.data == "nav:back_roles")
 async def nav_back_roles(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     data = await state.get_data()
-    category = CATEGORY_BY_ID[data["category_id"]]
+    # Defence in depth: the state filter above should guarantee category_id is
+    # set, but a missing one must reset the session, not KeyError into the
+    # global error handler.
+    category = CATEGORY_BY_ID.get(data.get("category_id", ""))
+    if category is None:
+        await state.clear()
+        await callback.answer(t("reg_session_expired", lang), show_alert=True)
+        return
     await state.set_state(RegistrationStates.roles)
     await callback.message.edit_text(
         _roles_prompt(category, lang),
@@ -1210,7 +1234,7 @@ async def nav_back_roles(callback: CallbackQuery, state: FSMContext, lang: str =
     await callback.answer()
 
 
-@router.callback_query(F.data == "nav:back_exp")
+@router.callback_query(RegistrationStates.engine, F.data == "nav:back_exp")
 async def nav_back_exp(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     await state.set_state(RegistrationStates.experience)
     await callback.message.edit_text(
@@ -1220,7 +1244,7 @@ async def nav_back_exp(callback: CallbackQuery, state: FSMContext, lang: str = "
     await callback.answer()
 
 
-@router.callback_query(F.data == "nav:back_engine")
+@router.callback_query(RegistrationStates.tools, F.data == "nav:back_engine")
 async def nav_back_engine(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     data = await state.get_data()
     await state.set_state(RegistrationStates.engine)
@@ -1235,7 +1259,10 @@ async def nav_back_engine(callback: CallbackQuery, state: FSMContext, lang: str 
     await callback.answer()
 
 
-@router.callback_query(F.data == "nav:back_tools")
+# Two source states: the motivation keyboard's "Back" goes to tools for
+# non-beginners, and the strengths keyboard (beginner branch) also backs to tools.
+@router.callback_query(RegistrationStates.strengths, F.data == "nav:back_tools")
+@router.callback_query(RegistrationStates.motivation, F.data == "nav:back_tools")
 async def nav_back_tools(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     data = await state.get_data()
     await state.set_state(RegistrationStates.tools)
@@ -1250,7 +1277,7 @@ async def nav_back_tools(callback: CallbackQuery, state: FSMContext, lang: str =
     await callback.answer()
 
 
-@router.callback_query(F.data == "nav:back_strengths")
+@router.callback_query(RegistrationStates.motivation, F.data == "nav:back_strengths")
 async def nav_back_strengths(callback: CallbackQuery, state: FSMContext, lang: str = "ru") -> None:
     data = await state.get_data()
     await state.set_state(RegistrationStates.strengths)

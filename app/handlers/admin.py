@@ -59,6 +59,12 @@ async def cb_review_decision(callback: CallbackQuery, services: ServiceContainer
     except ValueError:
         await callback.answer()
         return
+    # Whitelist the action BEFORE any DB work: an unknown/forged "rev:*" payload
+    # must be ignored, not fall through to the reject branch and silently
+    # decline a real person's application.
+    if action not in ("approve", "reject"):
+        await callback.answer()
+        return
 
     application = await services.applications.find_by_prefix(prefix)
     if application is None or application.status != ApplicationStatus.PENDING_REVIEW:

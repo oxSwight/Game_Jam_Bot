@@ -573,12 +573,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "en": "Editing cancelled.",
     },
     "edit_enter_nickname": {
-        "ru": "Введите новый <b>никнейм</b>:",
-        "en": "Enter a new <b>nickname</b>:",
+        "ru": "Введите новый <b>никнейм</b>:\n\nОтмена: /cancel",
+        "en": "Enter a new <b>nickname</b>:\n\nTo cancel: /cancel",
     },
     "edit_enter_email": {
-        "ru": "Введите новый <b>email</b>:",
-        "en": "Enter a new <b>email</b>:",
+        "ru": "Введите новый <b>email</b>:\n\nОтмена: /cancel",
+        "en": "Enter a new <b>email</b>:\n\nTo cancel: /cancel",
     },
     "edit_not_found_alert": {
         "ru": "Активная заявка не найдена.",

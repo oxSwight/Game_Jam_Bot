@@ -21,7 +21,9 @@ router = Router()
 
 @router.callback_query()
 async def stale_callback(callback: CallbackQuery, lang: str = "ru") -> None:
-    logger.info(
+    # DEBUG: telegram_id (and potentially forged callback data) is PII-adjacent
+    # diagnostic detail - keep it out of routine INFO logs.
+    logger.debug(
         "unhandled callback -> stale-button notice",
         extra={"extra_fields": {
             "telegram_id": callback.from_user.id,

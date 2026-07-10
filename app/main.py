@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.base import BaseStorage
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.types import (
     BotCommand,
     BotCommandScopeChat,
@@ -163,7 +163,13 @@ async def main() -> None:
     )
     notifications = NotificationService(bot)
 
-    dp = Dispatcher(storage=storage)
+    # events_isolation serializes updates PER USER: aiogram handles updates as
+    # concurrent tasks (handle_as_tasks=True), so without it a double-tap on
+    # "Отправить заявку" races two confirm_submit calls - the second one hits the
+    # one-active-per-user unique index and the user gets a bogus "nickname taken"
+    # detour right after a successful submit. In-process isolation is enough:
+    # InstanceLock + the DB advisory lock guarantee a single polling instance.
+    dp = Dispatcher(storage=storage, events_isolation=SimpleEventIsolation())
 
     # Middleware order matters (outer → inner):
     # throttle (shed spam early) → DB session → services → language → admin auth
