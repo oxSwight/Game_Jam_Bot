@@ -367,6 +367,15 @@ ENGINES_BY_CATEGORY: dict[str, tuple[str, ...]] = {
         NO_EXPERIENCE_OPTION,
         OTHER_OPTION,
     ),
+    "audio": (
+        "Unreal Engine",
+        "Unity",
+        "Godot",
+        "Roblox / UEFN",
+        "Custom engine",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
 }
 
 TOOLS_BY_CATEGORY: dict[str, tuple[str, ...]] = {
@@ -399,6 +408,19 @@ TOOLS_BY_CATEGORY: dict[str, tuple[str, ...]] = {
         "Machinations",
         "Draw.io / diagrams",
         "Twine",
+        NO_EXPERIENCE_OPTION,
+        OTHER_OPTION,
+    ),
+    "audio": (
+        "FMOD",
+        "Wwise",
+        "Reaper",
+        "Cubase",
+        "Ableton Live",
+        "FL Studio",
+        "Logic Pro",
+        "Pro Tools",
+        "Audacity",
         NO_EXPERIENCE_OPTION,
         OTHER_OPTION,
     ),
