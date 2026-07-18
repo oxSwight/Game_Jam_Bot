@@ -15,4 +15,7 @@ venv/
 # Local growth/marketing drafts - deliberately never committed.
 marketing/
 
+# Local database dumps (PII) - take one before any DB surgery, never commit it.
+backups/
+
 *.log

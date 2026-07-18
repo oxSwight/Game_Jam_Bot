@@ -12,6 +12,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from openpyxl import Workbook
 
 from app.data.catalog import EXPERIENCE_LEVELS
 from app.handlers.admin import IsAdminFilter
@@ -67,11 +68,13 @@ async def cmd_stats(message: Message, services: ServiceContainer) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# /export - CSV of every application
+# /export - a spreadsheet of every application: .xlsx + .csv (delimiter ";")
 # --------------------------------------------------------------------------- #
 # Chars that make Excel/LibreOffice treat a cell as a formula. A crafted nickname
 # like ``=HYPERLINK("http://evil","click")`` or ``@SUM(...)`` would otherwise run
-# when an admin opens the export - classic CSV/formula injection.
+# when an admin opens the export - classic CSV/formula injection. The same guard
+# also covers the .xlsx path: openpyxl stores a string starting with "=" as a
+# live formula, so every cell goes through _csv_cell before it reaches either file.
 _CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
 
@@ -91,24 +94,19 @@ def _blank_empty_multiselect(value: str) -> str:
     return "" if value == "-" else value
 
 
-@router.message(Command("export"))
-async def cmd_export(message: Message, services: ServiceContainer) -> None:
-    applications = await services.applications.list_all_with_users()
-    if not applications:
-        await message.answer("Заявок нет - экспортировать нечего.")
-        return
+_EXPORT_HEADER = [
+    "player_code", "id", "status", "is_active",
+    "nickname", "email", "telegram_id", "telegram_username",
+    "category", "roles", "experience", "engine", "tools",
+    "strengths", "motivations",
+    "created_at",
+]
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(
-        [
-            "player_code", "id", "status", "is_active",
-            "nickname", "email", "telegram_id", "telegram_username",
-            "category", "roles", "experience", "engine", "tools",
-            "strengths", "motivations",
-            "created_at",
-        ]
-    )
+
+def _export_rows(applications) -> list[list[str]]:
+    """Render every application as a list of already-sanitised cell strings -
+    the single source both the .xlsx and the .csv are written from."""
+    rows = []
     for app in applications:
         user = app.user
         row = [
@@ -130,13 +128,53 @@ async def cmd_export(message: Message, services: ServiceContainer) -> None:
             "; ".join(app.motivations),
             app.created_at.isoformat() if app.created_at else "",
         ]
-        writer.writerow([_csv_cell(cell) for cell in row])
+        rows.append([_csv_cell(cell) for cell in row])
+    return rows
 
+
+def _xlsx_bytes(rows: list[list[str]]) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "applications"
+    ws.append(_EXPORT_HEADER)
+    for row in rows:
+        ws.append(row)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def _csv_bytes(rows: list[list[str]]) -> bytes:
+    # Delimiter ";" on purpose: multi-selects are joined with "; ", and with the
+    # default "," delimiter csv.writer left those cells unquoted - a Russian-locale
+    # Excel (list separator ";") then split them across neighbouring columns, a
+    # per-row column drift. QUOTE_ALL so even an import wizard set to split on
+    # both "," and ";" keeps every cell (incl. ", "-joined engine/tools) intact.
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";", quoting=csv.QUOTE_ALL)
+    writer.writerow(_EXPORT_HEADER)
+    writer.writerows(rows)
     # BOM so Excel opens the UTF-8 file with correct Cyrillic encoding.
-    data = ("﻿" + buffer.getvalue()).encode("utf-8")
-    document = BufferedInputFile(data, filename="applications.csv")
+    return ("﻿" + buffer.getvalue()).encode("utf-8")
+
+
+@router.message(Command("export"))
+async def cmd_export(message: Message, services: ServiceContainer) -> None:
+    applications = await services.applications.list_all_with_users()
+    if not applications:
+        await message.answer("Заявок нет - экспортировать нечего.")
+        return
+
+    rows = _export_rows(applications)
+    # .xlsx first: cells are typed in the file itself, so no importer has to
+    # guess a delimiter and the columns can never drift.
     await message.answer_document(
-        document, caption=f"Экспорт: {len(applications)} заявок"
+        BufferedInputFile(_xlsx_bytes(rows), filename="applications.xlsx"),
+        caption=f"Экспорт: {len(applications)} заявок",
+    )
+    await message.answer_document(
+        BufferedInputFile(_csv_bytes(rows), filename="applications.csv"),
+        caption='CSV для скриптов (разделитель ";")',
     )
 
 
